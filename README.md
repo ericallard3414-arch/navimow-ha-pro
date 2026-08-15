@@ -68,12 +68,23 @@ to:
 
 Restart Home Assistant and add the integration from **Settings → Devices & services**.
 
-## Dashboard
+## Dashboard card installation
 
-The integration ships its dependency-free scheduler and zone-dashboard JavaScript and
-copies/registers the required frontend resources when Home Assistant starts.
+Navimow HA Pro includes a custom Lovelace card named
+`navimow-zone-dashboard-card`. The card provides the interactive LiDAR map, zone
+selection, mowing controls, schedules, settings, alerts and responsive phone/tablet/kiosk
+layout.
 
-Create a panel view containing:
+### Recommended installation (HACS)
+
+1. Install **Navimow HA Pro** from HACS and restart Home Assistant.
+2. Go to **Settings → Devices & services → Add integration** and configure
+   **Navimow HA Pro**.
+3. Wait for the mower entities and map camera to appear.
+4. The integration will attempt to copy and register its bundled dashboard JavaScript
+   automatically when Home Assistant starts.
+5. Create a new dashboard, or add a new view to an existing dashboard.
+6. Open the dashboard's **Raw configuration editor** and add the example below.
 
 ```yaml
 views:
@@ -85,9 +96,88 @@ views:
       - type: custom:navimow-zone-dashboard-card
 ```
 
-The card is designed to scale between a portrait kiosk and smaller phone/tablet/laptop
-screens. Use the map fullscreen control when you want maximum map area for zone
-selection.
+No mower entity IDs are required in the card YAML. The card discovers the entities
+created by Navimow HA Pro for the configured mower.
+
+### Creating a dedicated Navimow dashboard
+
+A dedicated panel dashboard gives the card the most screen space. In Home Assistant:
+
+1. Open **Settings → Dashboards**.
+2. Select **Add dashboard**.
+3. Give it a name such as **Navimow** and create it.
+4. Open the new dashboard and enter edit mode.
+5. Open the three-dot menu and choose **Raw configuration editor**.
+6. Replace the example view with the YAML shown above and save.
+
+If the dashboard URL is `dashboard-navimow` and the view path is `navimow`, the page is
+normally available at:
+
+```text
+/dashboard-navimow/navimow
+```
+
+### Manual card resource setup / troubleshooting
+
+If Home Assistant displays:
+
+```text
+Custom element doesn't exist: navimow-zone-dashboard-card
+```
+
+the frontend resource did not load. Verify that the bundled card has been copied to:
+
+```text
+/config/www/navimow_ha_pro/navimow-zone-dashboard-card.js
+```
+
+Home Assistant exposes files in `/config/www/` under the `/local/` browser path.
+Therefore the card resource URL is:
+
+```text
+/local/navimow_ha_pro/navimow-zone-dashboard-card.js
+```
+
+Then register it manually:
+
+1. Open **Settings → Dashboards**.
+2. Open the three-dot menu in the upper-right corner and choose **Resources**.
+3. Select **Add resource**.
+4. Enter `/local/navimow_ha_pro/navimow-zone-dashboard-card.js`.
+5. Select **JavaScript module** as the resource type.
+6. Save, then refresh Home Assistant.
+
+If **Resources** is not shown, enable **Advanced mode** in your Home Assistant user
+profile. Home Assistant requires custom-card JavaScript to be accessible to the frontend
+and registered as a module resource.
+
+After installing or updating the card, a browser may still have the old JavaScript
+cached. Try a hard refresh (`Ctrl+F5` on Windows/Linux), completely close/reopen the
+Home Assistant mobile app or browser tab, or restart Home Assistant if the card still
+does not load.
+
+### Phone, tablet and kiosk use
+
+The dashboard is responsive and is intended for portrait kiosks, desktop/laptop
+browsers, tablets and phones. On smaller displays, use the **fullscreen map** button to
+maximize the LiDAR map while selecting zones. The normal dashboard remains optimized
+for larger touch displays where the map and mower controls can stay visible together.
+
+### Optional navigation button
+
+If you use another Home Assistant dashboard as your main screen, you can navigate to
+the Navimow dashboard from a button. For example, with `custom:button-card`:
+
+```yaml
+type: custom:button-card
+icon: mdi:robot-mower
+show_name: false
+tap_action:
+  action: navigate
+  navigation_path: /dashboard-navimow/navimow
+```
+
+`custom:button-card` is optional and is not required by Navimow HA Pro.
 
 ## Services
 
