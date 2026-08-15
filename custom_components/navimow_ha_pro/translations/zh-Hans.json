@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "oauth2_authorize": {
+        "description": "点击\"确认\"以授权 Home Assistant 访问您的 Navimow 账户。\n\n您将被重定向到 Navimow 登录页面完成身份验证。"
+      },
+      "user": {
+        "title": "Navimow 集成配置",
+        "description": "配置 Navimow 割草机集成"
+      },
+      "reauth_confirm": {
+        "title": "需要重新认证",
+        "description": "您的 Navimow 认证已过期。请重新认证以继续使用该集成。"
+      }
+    },
+    "error": {
+      "authorization_failed": "授权失败，请重试。",
+      "token_exchange_failed": "无法用授权码交换 Token。",
+      "callback_failed": "无法处理 OAuth2 回调。",
+      "cannot_connect": "无法连接到 Navimow 服务。",
+      "invalid_auth": "认证失败，请检查配置。",
+      "unknown": "发生未知错误。",
+      "missing_config": "缺少配置。请在 const.py 中配置 CLIENT_ID 和 CLIENT_SECRET。"
+    },
+    "abort": {
+      "single_instance_allowed": "只能添加一个 Navimow 实例。",
+      "already_configured": "Navimow 已配置。",
+      "reauth_successful": "重新认证成功。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Navimow 选项",
+        "description": "配置 Navimow 集成选项"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "电池"
+      }
+    }
+  }
+}

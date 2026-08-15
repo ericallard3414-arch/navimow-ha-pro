@@ -1,0 +1,57 @@
+{
+  "config": {
+    "step": {
+      "oauth2_authorize": {
+        "description": "请通过浏览器登录您的 Navimow 账户。\n\nPlease log in to your Navimow account via browser."
+      },
+      "user": {
+        "title": "Navimow 集成配置",
+        "description": "配置 Navimow 割草机集成"
+      },
+      "private_login": {
+        "title": "Complete Navimow setup",
+        "description": "Enable automatic LiDAR maps, zones, telemetry and advanced controls. Your password is used only to obtain renewable tokens and is not stored.",
+        "data": {
+          "lidar_cloud_enabled": "Enable automatic maps and advanced controls",
+          "email": "Navimow account email",
+          "password": "Navimow account password"
+        }
+      }
+    },
+    "error": {
+      "authorization_failed": "授权失败，请重试",
+      "token_exchange_failed": "Token 交换失败",
+      "callback_failed": "回调处理失败",
+      "cannot_connect": "无法连接到 Navimow 服务",
+      "invalid_auth": "认证失败，请检查配置",
+      "lidar_credentials_required": "Enter your Navimow email and password, or disable automatic maps and advanced controls.",
+      "lidar_invalid_auth": "Navimow rejected the private-cloud login. Check the email and password.",
+      "unknown": "发生未知错误"
+    },
+    "abort": {
+      "single_instance_allowed": "只能添加一个 Navimow 实例",
+      "already_configured": "Navimow 已配置",
+      "reauth_successful": "重新认证成功",
+      "missing_config": "缺少 CLIENT_ID 或 CLIENT_SECRET，请在 const.py 中配置"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Navimow 选项",
+        "description": "Configure optional automatic LiDAR map access. Your password is used once to obtain renewable private tokens and is not stored.",
+        "data": {
+          "lidar_cloud_enabled": "Automatically download the LiDAR terrain map",
+          "email": "Navimow account email",
+          "password": "Navimow account password"
+        }
+      }
+    },
+    "error": {
+      "lidar_credentials_required": "Enter your Navimow email and password to enable automatic LiDAR maps.",
+      "lidar_invalid_auth": "Navimow rejected the LiDAR cloud login. Check the email and password.",
+      "cannot_connect": "Could not reach the Navimow cloud.",
+      "unknown": "LiDAR cloud setup failed unexpectedly. Check the Home Assistant log."
+    }
+  }
+}

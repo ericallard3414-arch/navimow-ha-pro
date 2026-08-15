@@ -1,0 +1,57 @@
+{
+  "config": {
+    "step": {
+      "oauth2_authorize": {
+        "description": "Click 'Confirm' to authorize Home Assistant to access your Navimow account.\n\nYou will be redirected to the Navimow login page to complete authentication."
+      },
+      "user": {
+        "title": "Navimow Integration Configuration",
+        "description": "Configure Navimow lawn mower integration"
+      },
+      "reauth_confirm": {
+        "title": "Re-authentication Required",
+        "description": "Your Navimow authentication has expired. Please re-authenticate to continue using the integration."
+      },
+      "private_login": {
+        "title": "Complete Navimow setup",
+        "description": "Enable automatic LiDAR maps, zones, telemetry and advanced controls. Your password is used only to obtain renewable tokens and is not stored.",
+        "data": {
+          "lidar_cloud_enabled": "Enable automatic maps and advanced controls",
+          "email": "Navimow account email",
+          "password": "Navimow account password"
+        }
+      }
+    },
+    "error": {
+      "authorization_failed": "Authorization failed. Please try again.",
+      "token_exchange_failed": "Failed to exchange authorization code for token.",
+      "callback_failed": "Failed to process OAuth2 callback.",
+      "cannot_connect": "Unable to connect to Navimow service.",
+      "invalid_auth": "Authentication failed. Please check your configuration.",
+      "lidar_credentials_required": "Enter your Navimow email and password, or disable automatic maps and advanced controls.",
+      "lidar_invalid_auth": "Navimow rejected the private-cloud login. Check the email and password.",
+      "unknown": "An unknown error occurred.",
+      "missing_config": "Missing configuration. Please configure CLIENT_ID and CLIENT_SECRET in const.py."
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Navimow instance is allowed.",
+      "already_configured": "Navimow is already configured.",
+      "reauth_successful": "Re-authentication successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Navimow Options",
+        "description": "Configure Navimow integration options"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      }
+    }
+  }
+}

@@ -1,0 +1,111 @@
+set_zone_name:
+  name: Set zone name
+  description: Register a known partition ID or assign it a friendly name.
+  fields:
+    mower_id:
+      name: Mower ID
+      description: Required only when more than one mower is configured. Accepts its cloud ID, serial number, or name.
+      example: mower_serial_or_cloud_id
+      selector:
+        text:
+    partition_id:
+      name: Partition ID
+      description: The exact numeric partition previously shown by the Target zone or Current mowing zone sensor.
+      required: true
+      example: 4
+      selector:
+        number:
+          min: 0
+          max: 100000
+          mode: box
+    name:
+      name: Friendly zone name
+      description: The name displayed by the Prepared mowing zone selector.
+      required: true
+      example: Front lawn
+      selector:
+        text:
+
+start_prepared_zone_experimental:
+  name: Start prepared zone (experimental)
+  description: Sends exactly one experimental official smart-home command. The server may ignore the selected zone and mow all zones.
+  fields:
+    mower_id:
+      name: Mower ID
+      description: Required only when more than one mower is configured. Accepts its cloud ID, serial number, or name.
+      example: mower_serial_or_cloud_id
+      selector:
+        text:
+    confirm_all_zone_risk:
+      name: I accept the all-zone start risk
+      description: Required confirmation that Navimow may ignore the prepared zone and start mowing the entire map.
+      required: true
+      default: false
+      selector:
+        boolean:
+
+
+mow:
+  name: Mow selected zones
+  description: Start mowing one or more map zones in the exact order supplied. Can restart from scratch or continue existing progress.
+  fields:
+    device_id:
+      name: Mower
+      description: Optional when only one mower is configured.
+      selector:
+        device:
+          integration: navimow_ha_pro
+    zones:
+      name: Zones
+      description: Numeric partition IDs in mowing order. Example for Front + Side + Back: [4, 6, 12].
+      required: true
+      example: [4, 6, 12]
+      selector:
+        object:
+    reset:
+      name: Restart from scratch
+      description: When enabled, clear previous mowing progress and start a fresh trail. Disable to continue the remaining uncut area.
+      required: true
+      default: true
+      selector:
+        boolean:
+
+set_schedule:
+  name: Set mowing schedule
+  description: Save one weekday's mowing periods and selected zones.
+  fields:
+    device_id:
+      name: Mower
+      description: Optional when only one mower is configured.
+      selector:
+        device:
+          integration: navimow_ha_pro
+    day:
+      name: Day
+      required: true
+      selector:
+        select:
+          options:
+            - sunday
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+    enabled:
+      name: Enabled
+      required: true
+      default: true
+      selector:
+        boolean:
+    periods:
+      name: Periods
+      description: List of start/end times and optional numeric zone IDs. The scheduler card builds this automatically.
+      required: true
+      example:
+        - start: "04:45"
+          end: "12:15"
+          zones: [4, 6]
+      selector:
+        object:

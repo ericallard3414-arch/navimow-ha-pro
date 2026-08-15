@@ -1,0 +1,725 @@
+class NavimowZoneDashboardCard extends HTMLElement {
+  setConfig(config) {
+    this.config = {
+      camera: "camera.navimow_i215_lidar_live_mowing_map",
+      mower: "lawn_mower.navimow_i215_lidar",
+      battery: "sensor.navimow_i215_lidar_batterie",
+      status: "sensor.outdoor_navimow_i215_lidar_status",
+      progress: "sensor.navimow_i215_lidar_mowing_progress",
+      coverage: "sensor.outdoor_navimow_i215_lidar_coverage",
+      week_area: "sensor.outdoor_navimow_i215_lidar_area_this_week",
+      cutting_height: "number.outdoor_navimow_i215_lidar_global_cutting_height",
+      work_mode: "select.outdoor_navimow_i215_lidar_work_mode",
+      schedule: null,
+      home_path: "/the-551/The551",
+      settings_match: "navimow_i215_lidar",
+      ...config,
+    };
+    this._selected = new Set();
+    this._lastMapSignature = "";
+    this._rendered = false;
+    this._settingsBuilt = false;
+    this._schedulerBuilt = false;
+    this._schedulerLoadPromise = null;
+    this._settingsUpdateRaf = 0;
+    this._lastImageRefresh = 0;
+    this._pendingSettings = new Map();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._rendered) this._build();
+    this._update();
+  }
+
+  getCardSize() { return 18; }
+
+  disconnectedCallback() {
+    if (this._timer) clearInterval(this._timer);
+    if (this._settingsUpdateRaf) cancelAnimationFrame(this._settingsUpdateRaf);
+  }
+
+  _build() {
+    this._rendered = true;
+    this.innerHTML = `
+      <ha-card>
+        <style>
+          :host{display:block;width:100%;height:100dvh;max-height:100dvh;overflow:hidden;box-sizing:border-box;--orange:#ff641e;--ink:#13171c;--muted:#7b838c;--line:#e7e9ec;--soft:#f4f5f6;--orange-dark:#e95413}
+          ha-card{overflow:hidden;border-radius:0;background:#fff;color:var(--ink);height:100%;min-height:0;box-shadow:none;box-sizing:border-box}
+          .shell{position:relative;height:100%;min-height:0;display:flex;flex-direction:column;background:#fff;overflow:hidden;box-sizing:border-box}
+          .top{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:clamp(14px,2.2vh,34px) clamp(18px,2.2vw,42px) clamp(10px,1.4vh,22px);gap:clamp(10px,1.2vw,20px)}
+          .topLeft{display:flex;align-items:center;gap:clamp(10px,1.1vw,18px);min-width:0}.homeBtn{width:clamp(48px,3.4vw,66px);height:clamp(48px,3.4vw,66px);flex:0 0 auto;border:0;border-radius:50%;background:var(--orange);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:clamp(22px,1.8vw,30px);box-shadow:0 4px 14px rgba(255,100,30,.28)}.homeBtn:active{transform:scale(.96);background:var(--orange-dark)}
+          .model{font-size:clamp(22px,2.0vw,34px);font-weight:700;letter-spacing:-.7px}.sub{font-size:clamp(12px,1vw,17px);color:var(--muted);margin-top:4px}
+          .topRight{display:flex;align-items:center;gap:clamp(8px,.8vw,14px);min-width:0}.topstats{display:flex;gap:clamp(6px,.7vw,12px);min-width:0}.roundAction{width:clamp(48px,3.4vw,66px);height:clamp(48px,3.4vw,66px);flex:0 0 auto;border:0;border-radius:50%;background:var(--orange);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 14px rgba(255,100,30,.28)}.roundAction ha-icon{--mdc-icon-size:clamp(24px,1.9vw,32px)}.roundAction:active{transform:scale(.96);background:var(--orange-dark)}.pill{height:clamp(38px,3.2vh,48px);padding:0 clamp(10px,1vw,17px);border:1px solid var(--line);border-radius:24px;display:flex;align-items:center;gap:7px;font-size:clamp(12px,.95vw,16px);font-weight:650;background:#fff;white-space:nowrap}
+          .dot{width:10px;height:10px;border-radius:50%;background:#39b86a;transition:background .18s ease,box-shadow .18s ease}.pill.activeStatus{border-color:#ffd3c0;background:#fff7f3}.pill.activeStatus .dot{background:var(--orange);box-shadow:0 0 0 5px rgba(255,100,30,.12)}.battery{font-variant-numeric:tabular-nums}
+          .mapWrap{position:relative;margin:0 clamp(8px,1.1vw,20px);flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;background:linear-gradient(#f7f8f8,#f0f1f2);border-radius:clamp(18px,1.7vw,32px)}
+          .mapStage{position:relative;width:100%;height:100%;min-height:0;line-height:0}.mapStage img{width:100%;height:100%;object-fit:contain;display:block;user-select:none;-webkit-user-drag:none}
+          .mapExpand{position:absolute;right:clamp(14px,1.3vw,24px);bottom:clamp(14px,1.3vw,24px);z-index:9;width:clamp(44px,3.1vw,58px);height:clamp(44px,3.1vw,58px);border:0;border-radius:50%;background:rgba(255,255,255,.96);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.18);backdrop-filter:blur(8px)}.mapExpand ha-icon{--mdc-icon-size:clamp(24px,1.8vw,31px)}.mapExpand:active{transform:scale(.96)}
+          .fullscreenBar{display:none;position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:12;align-items:center;gap:12px;padding:9px 10px 9px 16px;border-radius:999px;background:rgba(18,22,27,.86);color:#fff;box-shadow:0 10px 34px rgba(0,0,0,.28);backdrop-filter:blur(12px);font-size:14px;font-weight:800;white-space:nowrap}.fullscreenDone{border:0;border-radius:999px;background:var(--orange);color:#fff;padding:10px 17px;font:800 13px inherit;cursor:pointer}
+          .mapWrap.fullscreen{position:fixed!important;inset:0!important;margin:0!important;width:100vw!important;height:100dvh!important;min-height:100dvh!important;max-height:none!important;z-index:100000!important;border-radius:0!important;background:#f4f5f6!important;overflow:hidden!important}.mapWrap.fullscreen .mapStage{width:100%;height:100%}.mapWrap.fullscreen .mapExpand{right:max(18px,env(safe-area-inset-right));top:max(18px,env(safe-area-inset-top));bottom:auto;background:var(--orange);color:#fff}.mapWrap.fullscreen .liveBadge{right:max(76px,calc(env(safe-area-inset-right) + 76px));top:max(20px,env(safe-area-inset-top))}.mapWrap.fullscreen .mapBadge{left:max(18px,env(safe-area-inset-left));top:max(18px,env(safe-area-inset-top))}.mapWrap.fullscreen .fullscreenBar{display:flex}.mapWrap.fullscreen .delayAlert{bottom:max(78px,calc(env(safe-area-inset-bottom) + 78px))}
+          .zoneOverlay{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+          .zone{fill:transparent;stroke:transparent;stroke-width:4;cursor:pointer;transition:fill .16s ease,stroke .16s ease,filter .16s ease;pointer-events:all}
+          .zone.selected{fill:rgba(255,100,30,.27);stroke:var(--orange);filter:drop-shadow(0 0 5px rgba(255,100,30,.45));outline:none}.zone:focus{outline:none}.zone:focus-visible{outline:none;stroke:var(--orange)}
+          .zone:hover{fill:rgba(255,100,30,.10);stroke:rgba(255,100,30,.55)}
+          .zoneLabelGroup{pointer-events:none}.zoneLabelBox{fill:rgba(20,24,28,.62);stroke:rgba(255,255,255,.28);stroke-width:1.2}.zoneNameLabel{pointer-events:none;font:800 23px sans-serif;fill:#fff;text-anchor:middle;letter-spacing:-.2px}.zoneIdLabel{pointer-events:none;font:800 11px sans-serif;fill:rgba(255,255,255,.76);text-anchor:middle;letter-spacing:1.1px}.liveBadge{position:absolute;right:clamp(16px,1.5vw,28px);top:clamp(16px,1.6vh,28px);z-index:6;display:flex;align-items:center;gap:8px;padding:9px 13px;border-radius:999px;background:rgba(20,24,28,.72);color:#fff;font-size:clamp(10px,.78vw,13px);font-weight:800;letter-spacing:.25px;backdrop-filter:blur(8px);box-shadow:0 4px 18px rgba(0,0,0,.16)}.liveDot{width:9px;height:9px;border-radius:50%;background:var(--orange);box-shadow:0 0 0 0 rgba(255,100,30,.65);animation:livePulse 1.5s infinite}.liveBadge.stale .liveDot{background:#9ba1a7;animation:none;box-shadow:none}.liveBadge.stale{opacity:.7}@keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(255,100,30,.65)}70%{box-shadow:0 0 0 8px rgba(255,100,30,0)}100%{box-shadow:0 0 0 0 rgba(255,100,30,0)}}
+          .mapBadge{position:absolute;left:26px;top:24px;background:rgba(255,255,255,.94);border:1px solid rgba(0,0,0,.08);border-radius:18px;padding:12px 16px;line-height:1.2;box-shadow:0 4px 18px rgba(0,0,0,.09)}
+          .mapBadge strong{display:block;font-size:18px}.mapBadge span{font-size:14px;color:var(--muted)}
+          .delayAlert{position:absolute;left:clamp(16px,1.5vw,28px);bottom:clamp(16px,1.6vh,28px);z-index:7;display:none;align-items:center;gap:clamp(10px,1vw,16px);max-width:min(72%,760px);padding:clamp(10px,1.05vh,16px) clamp(14px,1.25vw,22px);border-radius:clamp(16px,1.25vw,22px);color:#fff;background:linear-gradient(100deg,#ff4b19 0%,#ff731d 58%,#ff9a23 100%);box-shadow:0 10px 30px rgba(219,62,18,.34),0 0 0 1px rgba(255,255,255,.18) inset;line-height:1.15;overflow:hidden;isolation:isolate;animation:delayBreath 1.9s ease-in-out infinite}
+          .delayAlert.show{display:flex}.delayAlert:after{content:"";position:absolute;inset:-35% auto -35% -25%;width:26%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.28),transparent);transform:skewX(-18deg);animation:delayShine 2.7s ease-in-out infinite;z-index:-1}.delayIcon{width:clamp(38px,3.1vw,54px);height:clamp(38px,3.1vw,54px);flex:0 0 auto;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px rgba(255,255,255,.28) inset}.delayIcon ha-icon{--mdc-icon-size:clamp(23px,1.8vw,31px)}.delayCopy{min-width:0}.delayTitle{font-size:clamp(13px,1.02vw,18px);font-weight:900;letter-spacing:.55px;text-transform:uppercase}.delayText{font-size:clamp(11px,.9vw,16px);font-weight:650;margin-top:3px;opacity:.96;white-space:normal}.delayPulse{width:9px;height:9px;margin-left:auto;flex:0 0 auto;border-radius:50%;background:#fff;box-shadow:0 0 0 0 rgba(255,255,255,.72);animation:delayDot 1.35s infinite}
+          @keyframes delayBreath{0%,100%{transform:translateZ(0) scale(1);filter:saturate(1)}50%{transform:translateZ(0) scale(1.008);filter:saturate(1.12)}}@keyframes delayDot{0%{box-shadow:0 0 0 0 rgba(255,255,255,.7)}70%{box-shadow:0 0 0 10px rgba(255,255,255,0)}100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}}@keyframes delayShine{0%,38%{left:-30%}68%,100%{left:125%}}
+          .panel{flex:0 0 auto;background:#fff;border-radius:clamp(20px,1.8vw,34px) clamp(20px,1.8vw,34px) 0 0;margin-top:-2px;position:relative;z-index:2;padding:clamp(12px,1.5vh,28px) clamp(16px,2vw,38px) clamp(12px,1.6vh,30px);border-top:1px solid var(--line);box-sizing:border-box}
+          .statusline{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:clamp(10px,1.3vh,24px)}.state{font-size:clamp(19px,1.6vw,27px);font-weight:720}.state small{font-size:clamp(11px,.95vw,16px);font-weight:500;color:var(--muted);display:block;margin-top:3px}
+          .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(6px,.7vw,12px);margin-bottom:clamp(7px,.9vh,14px)}.metric{padding:clamp(9px,1vh,17px) clamp(10px,1vw,18px);background:var(--soft);border-radius:clamp(12px,1.1vw,20px);min-width:0}.metric .v{font-size:clamp(18px,1.6vw,27px);font-weight:740;white-space:nowrap}.metric .k{font-size:clamp(9px,.78vw,13px);color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.5px}.metric.clickable{cursor:pointer;position:relative}.metric.clickable:active{transform:scale(.99)}.progressTrack{height:5px;border-radius:999px;background:#e5e7e9;overflow:hidden;margin:0 0 clamp(10px,1.2vh,22px)}.progressFill{height:100%;width:0;background:var(--orange);border-radius:inherit;transition:width .35s ease}.metric.clickable:after{content:"⌄";position:absolute;right:clamp(9px,.8vw,14px);top:50%;transform:translateY(-50%);font-size:clamp(18px,1.2vw,24px);color:var(--orange);font-weight:800}
+          .selectedHead{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(7px,.7vh,11px);margin-bottom:clamp(8px,.9vh,14px);text-align:center}.selectedTitle{width:100%;text-align:center;font-size:clamp(14px,1.12vw,19px);font-weight:800;letter-spacing:.35px}.minorActions{display:grid;grid-template-columns:repeat(2,minmax(150px,220px));justify-content:center;gap:clamp(8px,.75vw,13px);width:100%}.minor{min-height:clamp(42px,4vh,56px);border:1px solid var(--line);background:var(--soft);border-radius:clamp(14px,1vw,18px);padding:clamp(9px,.8vh,13px) clamp(14px,1.1vw,20px);font:800 clamp(13px,1vw,17px) inherit;letter-spacing:.15px;cursor:pointer;color:var(--ink);display:flex;align-items:center;justify-content:center;text-align:center}.minor:active{transform:scale(.99);background:#eceef0}
+          .chips{display:flex;gap:6px;flex-wrap:wrap;min-height:30px;margin-bottom:clamp(8px,.9vh,18px)}.chip{border:1px solid #ffd0bd;background:#fff4ef;color:#c74712;border-radius:17px;padding:clamp(6px,.6vh,9px) clamp(9px,.75vw,13px);font-size:clamp(11px,.82vw,14px);font-weight:700}.empty{color:var(--muted);font-size:clamp(11px,.88vw,15px);padding:5px 0}
+          .mainBtn{width:100%;height:clamp(52px,5.1vh,78px);border:0;border-radius:clamp(16px,1.3vw,24px);background:var(--orange);color:#fff;font-size:clamp(17px,1.45vw,24px);font-weight:800;letter-spacing:.2px;cursor:pointer;box-shadow:0 6px 20px rgba(255,100,30,.23)}
+          .mainBtn:disabled{background:#d7d9dc;box-shadow:none;color:#8d9297;cursor:not-allowed}
+          .rowActions{display:grid;grid-template-columns:1fr 1fr;gap:clamp(7px,.7vw,12px);margin-top:clamp(7px,.75vh,13px)}.secondary{height:clamp(42px,3.8vh,58px);border:0;border-radius:clamp(13px,1vw,19px);background:var(--orange);font-size:clamp(13px,1vw,17px);font-weight:800;cursor:pointer;color:#fff;box-shadow:0 4px 14px rgba(255,100,30,.18);display:flex;align-items:center;justify-content:center;gap:10px}.secondary:active{background:var(--orange-dark);transform:scale(.995)}.pauseIcon{display:inline-flex;gap:4px;align-items:center}.pauseIcon i{display:block;width:4px;height:17px;border-radius:2px;background:currentColor}
+          .modePanel{display:none;margin:clamp(8px,.9vh,16px) 0 clamp(8px,.9vh,16px);padding:clamp(12px,1.1vh,18px) clamp(12px,1.2vw,20px);border:1px solid var(--line);border-radius:clamp(14px,1.1vw,20px);background:#fff}.modePanel.open{display:block}.modeTitle{font-weight:800;font-size:clamp(13px,1vw,17px);margin-bottom:10px}.modeChoices{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(6px,.7vw,12px)}.modeChoice{min-height:clamp(42px,4.2vh,58px);border:1px solid var(--line);border-radius:clamp(12px,1vw,18px);background:var(--soft);color:var(--ink);font-size:clamp(11px,.9vw,15px);font-weight:760;cursor:pointer;padding:8px}.modeChoice.active{background:var(--orange);border-color:var(--orange);color:#fff;box-shadow:0 4px 14px rgba(255,100,30,.18)}.modeChoice:active{transform:scale(.99)}
+          .heightPanel{display:none;margin:clamp(8px,.9vh,16px) 0 clamp(8px,.9vh,16px);padding:clamp(12px,1.1vh,18px) clamp(12px,1.2vw,20px);border:1px solid var(--line);border-radius:clamp(14px,1.1vw,20px);background:#fff}.heightPanel.open{display:block}.heightTop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.heightTitle{font-weight:800;font-size:clamp(13px,1vw,17px)}.heightValue{font-weight:850;color:var(--orange);font-size:clamp(18px,1.45vw,25px)}.heightSlider{--pct:0%;-webkit-appearance:none;appearance:none;width:100%;height:36px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:none}.heightSlider::-webkit-slider-runnable-track{height:7px;border-radius:999px;background:linear-gradient(to right,var(--orange) 0,var(--orange) var(--pct),#d9dde1 var(--pct),#d9dde1 100%)}.heightSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 8px rgba(0,0,0,.24);margin-top:-9.5px}.heightSlider::-moz-range-track{height:7px;border-radius:999px;background:#d9dde1}.heightSlider::-moz-range-progress{height:7px;border-radius:999px;background:var(--orange)}.heightSlider::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 8px rgba(0,0,0,.24)}.heightScale{display:flex;justify-content:space-between;color:var(--muted);font-size:clamp(9px,.72vw,12px);margin-top:1px}.hint{text-align:center;color:var(--muted);font-size:clamp(9px,.75vw,13px);margin-top:clamp(6px,.7vh,14px)}.error{display:none;color:#b42318;background:#fff0ed;padding:11px 14px;border-radius:14px;margin-top:12px;font-size:14px}
+          .settingsOverlay{position:absolute;inset:0;z-index:50;background:rgba(17,23,28,.30);backdrop-filter:blur(4px);display:none;align-items:stretch;justify-content:flex-end;overflow:hidden}.settingsOverlay.open{display:flex}.settingsDrawer{position:absolute;top:0;right:0;width:min(90vw,1080px);max-width:calc(100% - 12px);height:100%;box-sizing:border-box;background:#fff;box-shadow:-12px 0 44px rgba(0,0,0,.18);display:flex;flex-direction:column;overflow:hidden}.settingsHeader{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(20px,2.2vh,34px) clamp(20px,2.2vw,34px);border-bottom:1px solid var(--line)}.settingsHeaderTitle{display:flex;align-items:center;gap:12px;font-size:clamp(22px,1.8vw,32px);font-weight:800}.settingsHeaderTitle ha-icon{color:var(--orange);--mdc-icon-size:clamp(28px,2.1vw,38px)}.settingsClose{width:clamp(46px,3.2vw,60px);height:clamp(46px,3.2vw,60px);border:0;border-radius:50%;background:var(--soft);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer}.settingsClose ha-icon{--mdc-icon-size:clamp(24px,1.8vw,30px)}.settingsBody{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;padding:clamp(16px,1.7vh,26px) clamp(18px,2vw,32px) clamp(28px,3vh,48px);box-sizing:border-box;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.settingsIntro{color:var(--muted);font-size:clamp(12px,.95vw,16px);margin:0 0 18px}.settingsGroup{margin-bottom:clamp(18px,2.1vh,30px)}.settingsGroupTitle{font-size:clamp(13px,1vw,17px);font-weight:850;letter-spacing:.45px;text-transform:uppercase;margin:0 0 9px;color:#555e66}.settingsList{border:1px solid var(--line);border-radius:clamp(16px,1.2vw,22px);overflow:hidden;background:#fff}.settingRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:clamp(12px,1.1vw,18px);min-height:clamp(58px,5.8vh,82px);padding:clamp(10px,1vh,15px) clamp(14px,1.25vw,20px);border:0;border-bottom:1px solid var(--line);width:100%;max-width:100%;box-sizing:border-box;background:#fff;color:var(--ink);text-align:left;cursor:pointer;font:inherit;overflow:hidden}.settingRow:last-child{border-bottom:0}.settingRow:active{background:var(--soft)}.settingIcon{width:clamp(38px,2.8vw,50px);height:clamp(38px,2.8vw,50px);border-radius:50%;background:#fff1ea;color:var(--orange);display:flex;align-items:center;justify-content:center}.settingIcon ha-icon{--mdc-icon-size:clamp(21px,1.55vw,27px)}.settingName{font-size:clamp(14px,1.05vw,18px);font-weight:720}.settingEntity{font-size:clamp(9px,.68vw,11px);color:#a0a6ac;margin-top:2px;display:none}.settingValue{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:clamp(12px,.95vw,16px);font-weight:650;max-width:260px;text-align:right}.settingValue .on{color:var(--orange)}.settingValue ha-icon{--mdc-icon-size:clamp(18px,1.3vw,23px);color:#a5abb1}.settingsEmpty{padding:24px;text-align:center;color:var(--muted)}
+          .settingRow.switchRow{cursor:default}.settingRow.numberRow{grid-template-columns:auto minmax(0,1fr);cursor:default;padding-top:clamp(12px,1.2vh,18px);padding-bottom:clamp(12px,1.2vh,18px)}.settingRow.numberRow:active,.settingRow.switchRow:active{background:#fff}.numberSetting{min-width:0}.numberHead{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:clamp(8px,.8vh,12px)}.numberCurrent{font-size:clamp(13px,1vw,17px);font-weight:850;color:var(--orange);white-space:nowrap}.settingSlider{--pct:0%;-webkit-appearance:none;appearance:none;width:100%;height:34px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:none}.settingSlider::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(to right,var(--orange) 0,var(--orange) var(--pct),#d9dde1 var(--pct),#d9dde1 100%)}.settingSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 7px rgba(0,0,0,.22);margin-top:-9px}.settingSlider::-moz-range-track{height:6px;border-radius:999px;background:#d9dde1}.settingSlider::-moz-range-progress{height:6px;border-radius:999px;background:var(--orange)}.settingSlider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 7px rgba(0,0,0,.22)}.settingSlider{transition:filter .15s ease}.settingSlider:active{filter:drop-shadow(0 2px 5px rgba(255,100,30,.18))}.settingScale{display:flex;justify-content:space-between;gap:12px;color:#a0a6ac;font-size:clamp(9px,.7vw,12px);margin-top:1px}.toggleWrap{display:flex;align-items:center;gap:clamp(8px,.7vw,12px)}.toggleState{min-width:30px;color:var(--muted);font-size:clamp(11px,.85vw,14px);font-weight:800;text-align:right}.toggleState.on{color:var(--orange)}.toggleSwitch{position:relative;width:clamp(52px,3.8vw,66px);height:clamp(30px,2.35vw,38px);border:0;border-radius:999px;background:#cfd3d7;cursor:pointer;padding:0;transition:background .18s ease,box-shadow .18s ease;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}.toggleSwitch.on{background:var(--orange);box-shadow:0 3px 12px rgba(255,100,30,.22)}.toggleKnob{position:absolute;top:3px;left:3px;width:calc(100% / 2 - 3px);height:calc(100% - 6px);border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.25);transition:transform .18s ease}.toggleSwitch.on .toggleKnob{transform:translateX(100%)}
+          .schedulerOverlay{position:absolute;inset:0;z-index:70;background:rgba(18,22,26,.42);backdrop-filter:blur(7px);display:none;align-items:center;justify-content:center;padding:clamp(16px,2.2vw,42px);box-sizing:border-box;overflow:hidden}.schedulerOverlay.open{display:flex}.schedulerDrawer{position:relative;width:min(92vw,1180px);height:min(88vh,1500px);max-width:100%;max-height:100%;background:#fff;border-radius:clamp(24px,2vw,38px);box-shadow:0 24px 80px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;animation:schedulePop .16s ease-out}.schedulerHeader{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(18px,2vh,30px) clamp(20px,2.2vw,34px);border-bottom:1px solid var(--line);background:#fff}.schedulerHeaderTitle{display:flex;align-items:center;gap:12px;font-size:clamp(23px,1.9vw,34px);font-weight:850;color:var(--ink)}.schedulerHeaderTitle ha-icon{color:var(--orange);--mdc-icon-size:clamp(29px,2.1vw,39px)}.schedulerClose{position:relative;z-index:5;width:clamp(50px,3.5vw,64px);height:clamp(50px,3.5vw,64px);border:0;border-radius:50%;background:var(--orange);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;box-shadow:0 4px 14px rgba(255,100,30,.24)}.schedulerClose ha-icon{pointer-events:none;--mdc-icon-size:clamp(26px,1.9vw,32px)}.schedulerClose:active{transform:scale(.95);background:var(--orange-dark)}.schedulerBody{flex:1 1 auto;min-height:0;overflow:auto;background:#f5f6f7;padding:clamp(12px,1.3vw,22px);box-sizing:border-box;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.schedulerHost{min-height:100%;max-width:100%;box-sizing:border-box}.schedulerMissing{margin:30px;padding:24px;background:#fff;border:1px solid var(--line);border-radius:20px;text-align:center;color:var(--muted)}@keyframes schedulePop{from{opacity:0;transform:scale(.975) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+          /* v0.6.26 proportional responsive layout */
+          @media (min-width:701px) and (orientation:landscape){
+            .top{padding:clamp(7px,1.05vh,14px) clamp(14px,1.45vw,28px) clamp(6px,.8vh,11px)}
+            .homeBtn,.roundAction{width:clamp(44px,3.2vmin,56px);height:clamp(44px,3.2vmin,56px)}
+            .model{font-size:clamp(22px,2.05vmin,30px)}
+            .sub{font-size:clamp(11px,1.05vmin,14px)}
+            .pill{height:clamp(34px,3.7vmin,42px);font-size:clamp(11px,1.05vmin,14px)}
+            .mapWrap{margin:0 clamp(8px,.9vw,16px);border-radius:clamp(16px,1.35vw,25px);flex:1 1 62%;min-height:40dvh}
+            .panel{padding:clamp(7px,.8vh,12px) clamp(14px,1.55vw,28px) clamp(7px,.9vh,13px);flex:0 0 auto}
+            .statusline{margin-bottom:clamp(5px,.65vh,9px)}
+            .state{font-size:clamp(17px,1.55vmin,23px)}
+            .metrics{gap:clamp(5px,.55vw,9px);margin-bottom:clamp(5px,.55vh,8px)}
+            .metric{padding:clamp(7px,.75vh,11px) clamp(8px,.75vw,13px);border-radius:clamp(10px,.85vw,15px)}
+            .metric .v{font-size:clamp(17px,1.55vmin,23px)}
+            .metric .k{font-size:clamp(9px,.78vmin,11px)}
+            .progressTrack{margin-bottom:clamp(5px,.6vh,9px);height:4px}
+            .selectedHead{flex-direction:row;justify-content:center;gap:clamp(10px,1.1vw,20px);margin-bottom:clamp(4px,.5vh,7px)}
+            .selectedTitle{width:auto;white-space:nowrap;font-size:clamp(13px,1.15vmin,17px)}
+            .minorActions{width:auto;grid-template-columns:repeat(2,minmax(145px,220px));gap:clamp(6px,.55vw,9px)}
+            .minor{min-height:clamp(34px,3.7vmin,44px);padding:5px 12px;font-size:clamp(11px,1vmin,14px)}
+            .chips{min-height:20px;max-height:28px;overflow:hidden;margin-bottom:clamp(4px,.5vh,7px)}
+            .chip{padding:4px 9px;font-size:clamp(10px,.9vmin,12px)}
+            .empty{font-size:clamp(10px,.95vmin,13px);padding:2px 0}
+            .mainBtn{height:clamp(42px,4.8vmin,56px);font-size:clamp(15px,1.35vmin,19px)}
+            .rowActions{margin-top:clamp(4px,.45vh,7px)}
+            .secondary{height:clamp(34px,3.8vmin,44px);font-size:clamp(12px,1.05vmin,15px)}
+            .hint{display:none}
+          }
+          @media (max-width:700px){
+            .mapWrap{flex:1 1 56dvh;min-height:42dvh}
+            .panel{max-height:47dvh;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+            .top{padding:10px 10px 7px}
+            .homeBtn,.roundAction{width:44px;height:44px}
+            .model{font-size:clamp(19px,6vw,25px)}
+            .metrics{margin-bottom:5px}
+            .metric{padding:7px 7px}
+            .selectedHead{gap:5px;margin-bottom:5px}
+            .minor{min-height:38px}
+            .chips{margin-bottom:5px;min-height:22px;max-height:48px;overflow:auto}
+            .mainBtn{height:48px}
+            .secondary{height:38px}
+            .hint{display:none}
+          }
+          @media (min-width:701px) and (orientation:portrait){
+            .mapWrap{flex:1 1 61%;min-height:0}
+            .panel{flex:0 0 auto;max-height:39%;overflow:auto;overscroll-behavior:contain}
+          }
+          @media(max-width:700px){.settingsDrawer{width:100vw}.schedulerOverlay{padding:8px}.schedulerDrawer{width:calc(100vw - 16px);height:calc(100dvh - 16px);border-radius:22px}.topstats .pill:first-child{display:none}.settingValue{max-width:130px}.settingsEntity{display:none}}
+          @media(max-width:700px){.minorActions{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics{grid-template-columns:repeat(2,1fr)}.modeChoices{grid-template-columns:1fr}.top{padding:14px 12px 10px}.sub{display:none}.pill{padding:0 9px}.mapWrap{margin:0 6px;border-radius:18px}.panel{padding:10px 12px 12px}.mapBadge{left:12px;top:12px;padding:8px 10px}.mapBadge strong{font-size:14px}.mapBadge span{font-size:11px}.zoneNameLabel{font-size:16px}.zoneIdLabel{font-size:9px}.liveBadge{right:10px;top:10px;padding:7px 9px}.metrics{gap:5px}.metric{padding:8px 7px}.rowActions{gap:6px}}
+          @media(max-height:900px){.top{padding-top:8px;padding-bottom:7px}.sub{display:none}.mapBadge{padding:7px 10px}.mapBadge span{display:none}.panel{padding-top:8px;padding-bottom:8px}.statusline{margin-bottom:7px}.metrics{margin-bottom:7px}.selectedHead{margin-bottom:5px}.chips{margin-bottom:6px;min-height:24px}.mainBtn{height:46px}.secondary{height:38px}.hint{display:none}}
+          @media(max-height:700px){.topstats .pill:first-child{display:none}.mapBadge{display:none}.metrics{grid-template-columns:repeat(4,1fr)}.panel{padding-top:6px}.state small{display:none}.chips{max-height:28px;overflow:hidden}.rowActions{margin-top:5px}.secondary{height:34px}}
+        </style>
+        <div class="shell">
+          <div class="top">
+            <div class="topLeft"><button class="homeBtn" id="homeBtn" type="button" aria-label="Return to The 551 dashboard">⌂</button><div><div class="model">Navimow i215 LiDAR</div><div class="sub" id="online">Interactive zone mowing</div></div></div>
+            <div class="topRight"><div class="topstats"><div class="pill"><span class="dot"></span><span id="statusTop">—</span></div><div class="pill battery">🔋 <span id="batteryTop">—%</span></div></div><button class="roundAction" id="schedulerBtn" type="button" title="Mowing schedule" aria-label="Open mowing schedule"><ha-icon icon="mdi:calendar-clock"></ha-icon></button><button class="roundAction" id="settingsBtn" type="button" title="Configuration" aria-label="Open mower configuration"><ha-icon icon="mdi:cog"></ha-icon></button></div>
+          </div>
+          <div class="mapWrap" id="mapWrap">
+            <div class="mapStage" id="mapStage"><img id="mapImage" alt="Navimow live mowing map"><svg id="overlay" class="zoneOverlay" aria-label="Selectable mowing zones"></svg></div><div class="liveBadge stale" id="liveBadge"><span class="liveDot"></span><span id="liveText">LIVE · waiting</span></div>
+            <button class="mapExpand" id="mapExpand" type="button" title="Full screen map" aria-label="Open full screen map"><ha-icon icon="mdi:fullscreen"></ha-icon></button>
+            <div class="fullscreenBar"><span id="fullscreenSelection">No zones selected</span><button class="fullscreenDone" id="fullscreenDone" type="button">DONE</button></div>
+            <div class="mapBadge"><strong>Tap lawn zones</strong><span>Multiple zones can be selected</span></div><div class="delayAlert" id="delayAlert" role="status" aria-live="polite"><div class="delayIcon"><ha-icon id="delayIcon" icon="mdi:weather-pouring"></ha-icon></div><div class="delayCopy"><div class="delayTitle" id="delayTitle">MOWING DELAYED</div><div class="delayText" id="delayText">Waiting for conditions to improve</div></div><span class="delayPulse" aria-hidden="true"></span></div>
+          </div>
+          <div class="panel">
+            <div class="statusline"><div class="state" id="stateText">—<small id="stateSub">Select the areas you want to mow</small></div></div>
+            <div class="metrics">
+              <div class="metric"><div class="v" id="progress">—</div><div class="k">Progress</div></div>
+              <div class="metric"><div class="v" id="weekArea">—</div><div class="k">This week</div></div>
+              <div class="metric clickable" id="heightMetric" role="button" tabindex="0" aria-label="Adjust cutting height"><div class="v" id="height">—</div><div class="k">Cut height</div></div>
+              <div class="metric clickable" id="modeMetric" role="button" tabindex="0" aria-label="Select mowing work mode"><div class="v" id="workMode">—</div><div class="k">Work mode</div></div>
+            </div><div class="progressTrack" aria-hidden="true"><div class="progressFill" id="progressFill"></div></div>
+            <div class="modePanel" id="modePanel"><div class="modeTitle">Work mode</div><div class="modeChoices"><button class="modeChoice" data-mode="Precision Mowing">Precision Mowing</button><button class="modeChoice" data-mode="Standard Mowing">Standard Mowing</button><button class="modeChoice" data-mode="Efficient Mowing">Efficient Mowing</button></div></div>
+            <div class="heightPanel" id="heightPanel"><div class="heightTop"><div class="heightTitle">Cutting height</div><div class="heightValue" id="heightValue">—</div></div><input class="heightSlider" id="heightSlider" type="range" min="1" max="4" step="0.1" value="2.6" aria-label="Cutting height"><div class="heightScale"><span id="heightMin">1.0 in</span><span id="heightMax">4.0 in</span></div></div>
+            <div class="selectedHead"><div class="selectedTitle" id="selectedTitle">SELECTED AREAS</div><div class="minorActions"><button class="minor" id="allBtn">SELECT ALL ZONES</button><button class="minor" id="clearBtn">CLEAR ZONE(S)</button></div></div>
+            <div class="chips" id="chips"><span class="empty">Tap a zone on the map.</span></div>
+            <button class="mainBtn" id="mowBtn" disabled>SELECT A ZONE</button>
+            <div class="rowActions"><button class="secondary" id="pauseBtn"><span class="pauseIcon" aria-hidden="true"><i></i><i></i></span><span>PAUSE</span></button><button class="secondary" id="dockBtn"><span aria-hidden="true">⌂</span><span>RETURN HOME</span></button></div>
+            <div class="error" id="error"></div>
+            <div class="hint">Starting a selected-zone job clears the previous trail and begins a fresh mowing session.</div>
+          </div>
+          <div class="settingsOverlay" id="settingsOverlay" aria-hidden="true"><div class="settingsDrawer" role="dialog" aria-modal="true" aria-label="Navimow configuration"><div class="settingsHeader"><div class="settingsHeaderTitle"><ha-icon icon="mdi:cog"></ha-icon><span>Configuration</span></div><button class="settingsClose" id="settingsClose" type="button" aria-label="Close configuration"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="settingsBody"><p class="settingsIntro">All Home Assistant configuration entities for this mower. Tap any setting to adjust it.</p><div id="settingsContent"></div></div></div></div>
+          <div class="schedulerOverlay" id="schedulerOverlay" aria-hidden="true"><div class="schedulerDrawer" role="dialog" aria-modal="true" aria-label="Navimow mowing schedule"><div class="schedulerHeader"><div class="schedulerHeaderTitle"><ha-icon icon="mdi:calendar-clock"></ha-icon><span>Mowing schedule</span></div><button class="schedulerClose" id="schedulerClose" type="button" aria-label="Close mowing schedule"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="schedulerBody"><div class="schedulerHost" id="schedulerHost"></div></div></div></div>
+        </div>`;
+    this.querySelector('#homeBtn').addEventListener('click',()=>this._navigateHome());
+    this.querySelector('#mapExpand').addEventListener('click',()=>this._toggleMapFullscreen());
+    this.querySelector('#fullscreenDone').addEventListener('click',()=>this._toggleMapFullscreen(false));
+    this.querySelector('#schedulerBtn').addEventListener('click',()=>this._openScheduler());
+    const schedulerClose=this.querySelector('#schedulerClose');
+    schedulerClose.addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();this._closeScheduler();});
+    schedulerClose.addEventListener('pointerup',(e)=>{e.preventDefault();e.stopPropagation();this._closeScheduler();});
+    this.querySelector('#schedulerOverlay').addEventListener('click',e=>{if(e.target===this.querySelector('#schedulerOverlay'))this._closeScheduler();});
+    this._scheduleKeyHandler=(e)=>{if(e.key!=='Escape')return;if(this.querySelector('#schedulerOverlay')?.classList.contains('open'))this._closeScheduler();else if(this.querySelector('#settingsOverlay')?.classList.contains('open'))this._closeSettings();else if(this.querySelector('#mapWrap')?.classList.contains('fullscreen'))this._toggleMapFullscreen(false);};
+    window.addEventListener('keydown',this._scheduleKeyHandler);
+    this.querySelector('#settingsBtn').addEventListener('click',()=>this._openSettings());
+    this.querySelector('#settingsClose').addEventListener('click',()=>this._closeSettings());
+    this.querySelector('#settingsOverlay').addEventListener('click',e=>{if(e.target===this.querySelector('#settingsOverlay'))this._closeSettings();});
+    this.querySelector('#allBtn').addEventListener('click',()=>this._selectAll());
+    this.querySelector('#clearBtn').addEventListener('click',()=>{this._selected.clear();this._paintSelection();});
+    this.querySelector('#mowBtn').addEventListener('click',()=>this._mow());
+    this.querySelector('#pauseBtn').addEventListener('click',()=>this._service('lawn_mower','pause',{entity_id:this.config.mower}));
+    this.querySelector('#dockBtn').addEventListener('click',()=>{
+      this._manualDockAt=Date.now();
+      this.querySelector('#delayAlert')?.classList.remove('show');
+      this._service('lawn_mower','dock',{entity_id:this.config.mower});
+    });
+    const heightMetric=this.querySelector('#heightMetric');
+    heightMetric.addEventListener('click',()=>this._toggleHeightPanel());
+    heightMetric.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();this._toggleHeightPanel();}});
+    const heightSlider=this.querySelector('#heightSlider');
+    heightSlider.addEventListener('pointerdown',()=>{heightSlider.dataset.dragging='1';});
+    heightSlider.addEventListener('input',()=>{
+      heightSlider.dataset.dragging='1';
+      this._previewHeight(heightSlider.value);
+      this._paintSettingSlider(heightSlider);
+    });
+    heightSlider.addEventListener('change',()=>{heightSlider.dataset.dragging='0';this._setHeight(heightSlider.value);});
+    heightSlider.addEventListener('pointerup',()=>{heightSlider.dataset.dragging='0';});
+    const modeMetric=this.querySelector('#modeMetric');
+    modeMetric.addEventListener('click',()=>this._toggleModePanel());
+    modeMetric.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();this._toggleModePanel();}});
+    this.querySelectorAll('.modeChoice').forEach(btn=>btn.addEventListener('click',()=>this._setWorkMode(btn.dataset.mode)));
+    this._refreshImage();
+    const prep=()=>{if(this._hass&&!this._settingsBuilt)this._renderSettings();};
+    if('requestIdleCallback' in window) requestIdleCallback(prep,{timeout:1200}); else setTimeout(prep,250);
+    this._timer=setInterval(()=>{this._refreshImage();this._updateLiveBadge();},2000);
+  }
+
+  _entity(id){ return this._hass?.states?.[id]; }
+  _state(id,fallback='—'){ const e=this._entity(id); return e ? e.state : fallback; }
+  _prettyState(v){ return String(v||'unknown').replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase()); }
+  _fmtArea(v){ const n=Number(v); return Number.isFinite(n) ? `${Math.round(n).toLocaleString()} ft²` : '—'; }
+
+  _update(){
+    const cam=this._entity(this.config.camera);
+    if(!cam) return;
+    const battery=this._state(this.config.battery, cam.attributes.battery ?? '—');
+    const status=this._prettyState(this._state(this.config.status,this._state(this.config.mower)));
+    this.querySelector('#batteryTop').textContent=`${battery}%`;
+    this.querySelector('#statusTop').textContent=status;
+    const statusPill=this.querySelector('#statusTop')?.closest('.pill'); if(statusPill) statusPill.classList.toggle('activeStatus',/mow|return|pause|delay/.test(String(status).toLowerCase()));
+    this.querySelector('#stateText').childNodes[0].nodeValue=status;
+    this._updateDelayAlert(status,cam);
+    const progress=this._state(this.config.progress,'unknown');
+    this.querySelector('#progress').textContent=(progress==='unknown'||progress==='unavailable')?'—':`${Number(progress).toFixed(0)}%`;
+    const pn=Number(progress); const pf=this.querySelector('#progressFill'); if(pf) pf.style.width=`${Number.isFinite(pn)?Math.max(0,Math.min(100,pn)):0}%`;
+    this.querySelector('#weekArea').textContent=this._fmtArea(this._state(this.config.week_area));
+    const wm=this._entity(this.config.work_mode);
+    const wmState=wm && !['unknown','unavailable'].includes(wm.state) ? wm.state : '—';
+    this.querySelector('#workMode').textContent=wmState==='—'?'—':wmState.replace(' Mowing','');
+    this.querySelectorAll('.modeChoice').forEach(btn=>btn.classList.toggle('active',btn.dataset.mode===wm?.state));
+    const h=this._entity(this.config.cutting_height);
+    if(h){
+      const unit=h.attributes.unit_of_measurement||'';
+      const actual=Number(h.state);
+      const pending=this._pendingSettings.get(this.config.cutting_height);
+      let value=actual;
+      if(pending?.type==='number'){
+        // Cutting height is displayed in converted user units.  Use a tight
+        // tolerance; the entity's backend step can be 5 mm and is far too
+        // large to use as an acknowledgement tolerance in inches.
+        if(Number.isFinite(actual) && Math.abs(actual-Number(pending.value))<=0.06){
+          this._pendingSettings.delete(this.config.cutting_height);
+          value=actual;
+        }else if(Date.now()<pending.expires){
+          value=Number(pending.value);
+        }else{
+          this._pendingSettings.delete(this.config.cutting_height);
+        }
+      }
+      this.querySelector('#height').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
+      const slider=this.querySelector('#heightSlider');
+      const min=Number(h.attributes.min), max=Number(h.attributes.max);
+      if(Number.isFinite(min)) slider.min=String(min);
+      if(Number.isFinite(max)) slider.max=String(max);
+      slider.step='0.05';
+      if(Number.isFinite(value) && slider.dataset.dragging!=='1') slider.value=String(value);
+      this._paintSettingSlider(slider);
+      this.querySelector('#heightValue').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
+      this.querySelector('#heightMin').textContent=`${Number.isFinite(min)?min.toFixed(1):'1.0'} ${unit}`;
+      this.querySelector('#heightMax').textContent=`${Number.isFinite(max)?max.toFixed(1):'4.0'} ${unit}`;
+    }else{
+      this.querySelector('#height').textContent='—';
+    }
+    this._renderZones(cam);
+    this._paintSelection();
+    if(this.querySelector('#settingsOverlay')?.classList.contains('open') && !this._settingsUpdateRaf){
+      this._settingsUpdateRaf=requestAnimationFrame(()=>{this._settingsUpdateRaf=0;this._updateSettingsControls();});
+    }
+    if(this.querySelector('#schedulerOverlay')?.classList.contains('open')){
+      const scheduler=this.querySelector('#schedulerHost navimow-scheduler-card');
+      if(scheduler) scheduler.hass=this._hass;
+    }
+  }
+
+  _updateDelayAlert(status,cam){
+    const el=this.querySelector('#delayAlert'); if(!el) return;
+    // An explicit RETURN HOME is user intent, not a weather interruption.
+    // Hide any stale latched alert immediately while HA/cloud state catches up.
+    if(this._manualDockAt && (Date.now()-this._manualDockAt)<90000){ el.classList.remove('show'); return; }
+    const raw=cam?.attributes?.task_delay;
+    const lastRaw=cam?.attributes?.last_task_delay;
+    const lastAge=Number(cam?.attributes?.last_task_delay_age_s);
+    const interruption=cam?.attributes?.interruption_notice;
+    const rawActive=raw!==undefined && raw!==null && raw!==false && raw!==0 && raw!=='0' && raw!=='' && raw!=='00';
+    // Keep the last real Navimow delay reason visible for up to two hours.  The
+    // mower often clears taskDelay immediately when it turns around for home.
+    const latchedActive=Number.isFinite(lastAge) && lastAge>=0 && lastAge<=7200 && lastRaw!==undefined && lastRaw!==null;
+    const effectiveRaw=rawActive ? raw : (latchedActive ? lastRaw : null);
+    const rawText=(effectiveRaw && typeof effectiveRaw==='object') ? JSON.stringify(effectiveRaw) : String(effectiveRaw ?? '');
+    const interruptionText=(interruption && typeof interruption==='object') ? JSON.stringify(interruption) : String(interruption ?? '');
+    const statusText=String(status||'').toLowerCase();
+    const combined=`${statusText} ${rawText.toLowerCase()} ${interruptionText.toLowerCase()}`;
+
+    let related='';
+    let inferredWind=false;
+    const match=String(this.config.settings_match||'').toLowerCase();
+    if(this._hass?.states){
+      for(const [id,e] of Object.entries(this._hass.states)){
+        if(match && !id.toLowerCase().includes(match)) continue;
+        const st=String(e?.state||'').toLowerCase();
+        const friendly=String(e?.attributes?.friendly_name||'').toLowerCase();
+        const ident=id.toLowerCase();
+        if(/rain|raining|frost|snow|wind|temperature|weather|delay|delayed|paused|waiting|storm/.test(st)) related+=` ${st}`;
+        const windEntity=/strong[_ ]?wind|wind[_ ]?delay|storm/.test(`${ident} ${friendly}`);
+        const domain=ident.split('.')[0];
+        const activeState=/active|triggered|detected|delay|delayed|waiting|hold|wind|storm/.test(st);
+        if(windEntity && ((domain!=='switch' && domain!=='input_boolean' && activeState) || /triggered|detected|delay|delayed|waiting|hold/.test(st))){
+          inferredWind=true; related+=` ${ident} ${friendly}`;
+        }
+      }
+    }
+    const text=`${combined} ${related}`;
+    const mentionsDelay=/delay|delayed|waiting|weather hold|rain hold/.test(text);
+    const interrupted=!!interruption;
+    const active=rawActive || latchedActive || mentionsDelay || interrupted;
+    if(!active){ el.classList.remove('show'); return; }
+
+    const atBase=/charging|docked|returning|return home|idle/.test(statusText) || /charging|docked|returning|early_return/.test(interruptionText.toLowerCase());
+    let icon='mdi:timer-alert-outline';
+    let title=atBase ? 'MOWING INTERRUPTED' : 'MOWING DELAYED';
+    let message=atBase ? 'Mower returned to base before the mowing task was complete' : 'Mowing is temporarily delayed · waiting for safe conditions';
+    if(/rain|raining|shower|precip/.test(text)){
+      icon='mdi:weather-pouring';
+      title=atBase ? 'RAIN DELAY · AT BASE' : 'MOWING DELAYED';
+      message=atBase ? 'Rain interrupted mowing · Navimow returned to the charging base' : 'Rain detected · mowing is temporarily delayed';
+    }else if(/frost|freez|ice/.test(text)){
+      icon='mdi:snowflake-alert'; message=atBase?'Frost delay · Navimow returned to base':'Frost conditions · mowing is temporarily delayed';
+    }else if(/snow/.test(text)){
+      icon='mdi:weather-snowy-heavy'; message=atBase?'Snow delay · Navimow returned to base':'Snow conditions · mowing is temporarily delayed';
+    }else if(/wind|storm/.test(text) || inferredWind){
+      icon='mdi:weather-windy'; message=atBase?'Strong wind delay · Navimow returned to base':'Strong wind detected · mowing is temporarily delayed';
+    }else if(/temperature|high temp|heat/.test(text)){
+      icon='mdi:thermometer-alert'; message=atBase?'Temperature delay · Navimow returned to base':'Temperature conditions · mowing is temporarily delayed';
+    }
+    this.querySelector('#delayIcon')?.setAttribute('icon',icon);
+    this.querySelector('#delayTitle').textContent=title;
+    this.querySelector('#delayText').textContent=message;
+    el.classList.add('show');
+  }
+
+  _refreshImage(){
+    const cam=this._entity(this.config.camera); if(!cam) return;
+    let src=cam.attributes.entity_picture;
+    if(!src) return;
+    src += (src.includes('?')?'&':'?') + `_navimow=${Date.now()}`;
+    const img=this.querySelector('#mapImage');
+    if(img && img.src!==src){
+      // Decode off the interaction path where supported, then swap the image.
+      const preload=new Image();
+      preload.decoding='async'; preload.src=src;
+      preload.onload=()=>{if(img) img.src=src; this._lastLiveImage=Date.now(); this._updateLiveBadge();};
+    }
+  }
+
+  _updateLiveBadge(){
+    const badge=this.querySelector('#liveBadge'), text=this.querySelector('#liveText'); if(!badge||!text) return;
+    const age=this._lastLiveImage ? Math.max(0,Math.round((Date.now()-this._lastLiveImage)/1000)) : null;
+    const stale=age===null || age>8; badge.classList.toggle('stale',stale);
+    text.textContent=age===null?'LIVE · waiting':`LIVE · ${age}s ago`;
+  }
+
+  _renderZones(cam){
+    const zones=Array.isArray(cam.attributes.selectable_zones)?cam.attributes.selectable_zones:[];
+    const view=cam.attributes.map_view;
+    if(!view||!zones.length) return;
+    const sig=JSON.stringify([view,zones]); if(sig===this._lastMapSignature) return; this._lastMapSignature=sig;
+    this._zones=zones;
+    const svg=this.querySelector('#overlay');
+    const width=Number(view.width), height=Number(view.height), scale=Number(view.scale), minX=Number(view.min_x), maxY=Number(view.max_y);
+    if(![width,height,scale,minX,maxY].every(Number.isFinite)) return;
+    svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+    svg.setAttribute('preserveAspectRatio','xMidYMid meet');
+    svg.innerHTML='';
+    const px=x=>(Number(x)-minX)*scale, py=y=>(maxY-Number(y))*scale;
+    const polygonCentroid=(points)=>{
+      const pts=(points||[]).map(p=>[Number(p[0]),Number(p[1])]).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
+      if(!pts.length) return [0,0];
+      if(pts.length<3){
+        return [pts.reduce((s,p)=>s+p[0],0)/pts.length,pts.reduce((s,p)=>s+p[1],0)/pts.length];
+      }
+      let twiceArea=0,cx=0,cy=0;
+      for(let i=0;i<pts.length;i++){
+        const a=pts[i],b=pts[(i+1)%pts.length];
+        const cross=a[0]*b[1]-b[0]*a[1];
+        twiceArea+=cross; cx+=(a[0]+b[0])*cross; cy+=(a[1]+b[1])*cross;
+      }
+      if(Math.abs(twiceArea)<1e-9){
+        return [pts.reduce((s,p)=>s+p[0],0)/pts.length,pts.reduce((s,p)=>s+p[1],0)/pts.length];
+      }
+      return [cx/(3*twiceArea),cy/(3*twiceArea)];
+    };
+    zones.forEach(z=>{
+      const pts=(z.points||[]).map(p=>`${px(p[0]).toFixed(1)},${py(p[1]).toFixed(1)}`).join(' ');
+      if(!pts) return;
+      const poly=document.createElementNS('http://www.w3.org/2000/svg','polygon'); poly.setAttribute('points',pts); poly.classList.add('zone'); poly.dataset.id=String(z.id); poly.setAttribute('tabindex','0'); poly.setAttribute('role','button'); poly.setAttribute('aria-label',`Select ${z.name}`);
+      const toggle=()=>{const id=Number(z.id);this._selected.has(id)?this._selected.delete(id):this._selected.add(id);this._paintSelection();};
+      poly.addEventListener('click',toggle); poly.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle();}}); svg.appendChild(poly);
+      const [cx,cy]=polygonCentroid(z.points||[]);
+      const lx=px(cx), ly=py(cy);
+      const group=document.createElementNS('http://www.w3.org/2000/svg','g'); group.setAttribute('class','zoneLabelGroup');
+      const name=String(z.name||`Zone ${z.id}`); const boxW=Math.max(82,Math.min(290,name.length*13+34)), boxH=52;
+      const box=document.createElementNS('http://www.w3.org/2000/svg','rect'); box.setAttribute('x',(lx-boxW/2).toFixed(1)); box.setAttribute('y',(ly-boxH/2).toFixed(1)); box.setAttribute('width',boxW.toFixed(1)); box.setAttribute('height',boxH); box.setAttribute('rx','15'); box.setAttribute('class','zoneLabelBox'); group.appendChild(box);
+      const label=document.createElementNS('http://www.w3.org/2000/svg','text'); label.setAttribute('x',lx); label.setAttribute('y',ly-5); label.setAttribute('class','zoneNameLabel'); label.setAttribute('dominant-baseline','middle'); label.textContent=name; group.appendChild(label);
+      const idLabel=document.createElementNS('http://www.w3.org/2000/svg','text'); idLabel.setAttribute('x',lx); idLabel.setAttribute('y',ly+14); idLabel.setAttribute('class','zoneIdLabel'); idLabel.setAttribute('dominant-baseline','middle'); idLabel.textContent=`ZONE ${z.id}`; group.appendChild(idLabel);
+      svg.appendChild(group);
+    });
+  }
+
+  _toggleMapFullscreen(force){
+    const wrap=this.querySelector('#mapWrap');
+    const btn=this.querySelector('#mapExpand');
+    if(!wrap||!btn) return;
+    const next=typeof force==='boolean'?force:!wrap.classList.contains('fullscreen');
+    wrap.classList.toggle('fullscreen',next);
+    btn.setAttribute('aria-label',next?'Exit full screen map':'Open full screen map');
+    btn.setAttribute('title',next?'Exit full screen map':'Full screen map');
+    btn.querySelector('ha-icon')?.setAttribute('icon',next?'mdi:fullscreen-exit':'mdi:fullscreen');
+    // Repaint after the viewport geometry changes so SVG labels/polygons line
+    // up perfectly with the contain-scaled camera image on phone/tablet/laptop.
+    requestAnimationFrame(()=>{this._lastMapSignature='';const cam=this._entity(this.config.camera);if(cam)this._renderZones(cam);});
+  }
+
+  _navigateHome(){
+    const path=this.config.home_path||'/the-551/The551';
+    if(window.location.pathname===path) return;
+    window.history.pushState(null,'',path);
+    window.dispatchEvent(new Event('location-changed'));
+  }
+
+  _selectAll(){ (this._zones||[]).forEach(z=>this._selected.add(Number(z.id))); this._paintSelection(); }
+  _paintSelection(){
+    this.querySelectorAll('.zone').forEach(p=>p.classList.toggle('selected',this._selected.has(Number(p.dataset.id))));
+    const zones=this._zones||[]; const selected=zones.filter(z=>this._selected.has(Number(z.id)));
+    const chips=this.querySelector('#chips'); chips.innerHTML=selected.length?selected.map(z=>`<span class="chip">${this._escape(z.name)}</span>`).join(''):'<span class="empty">Tap a zone on the map.</span>';
+    const title=this.querySelector('#selectedTitle'); title.textContent=selected.length?`${selected.length} ZONE${selected.length===1?'':'S'} SELECTED`:'SELECTED AREAS';
+    const fs=this.querySelector('#fullscreenSelection'); if(fs) fs.textContent=selected.length?`${selected.length} zone${selected.length===1?'':'s'} selected`:'No zones selected';
+    const btn=this.querySelector('#mowBtn'); btn.disabled=!selected.length; btn.textContent=selected.length===1?`▶ MOW ${selected[0].name.toUpperCase()}`:`▶ MOW ${selected.length} SELECTED ZONES`;
+    const coverage=this._entity(this.config.coverage); const cz=coverage?.attributes?.zones||[]; const area=selected.reduce((sum,z)=>{const m=cz.find(x=>Number(x.id)===Number(z.id));return sum+(m?Number(m.area)||0:0)},0);
+    this.querySelector('#stateSub').textContent=selected.length?`${selected.map(z=>z.name).join(' + ')}${area?` · ${this._fmtArea(area*10.76391041671)}`:''}`:'Select the areas you want to mow';
+  }
+
+
+  _configurationEntities(){
+    const match=String(this.config.settings_match||'navimow_i215_lidar').toLowerCase();
+    const allowedDomains=new Set(['number','select','switch','text']);
+    return Object.values(this._hass?.states||{}).filter(entity=>{
+      const [domain]=entity.entity_id.split('.');
+      if(!allowedDomains.has(domain)) return false;
+      if(!entity.entity_id.toLowerCase().includes(match)) return false;
+      // Prepared mowing zone is an operating control, not an EntityCategory.CONFIG entity.
+      if(entity.entity_id.includes('prepared_mowing_zone')) return false;
+      return true;
+    }).sort((a,b)=>this._settingLabel(a).localeCompare(this._settingLabel(b)));
+  }
+  _settingLabel(entity){
+    let name=entity?.attributes?.friendly_name||entity?.entity_id||'Setting';
+    name=name.replace(/^Outdoor Navimow i215 LiDAR\s*/i,'').replace(/^Navimow i215 LiDAR\s*/i,'');
+    return name||'Setting';
+  }
+  _settingGroup(entity){
+    const t=`${this._settingLabel(entity)} ${entity.entity_id}`.toLowerCase();
+    if(/zone.*name/.test(t)) return 'Zone names';
+    if(/rain|frost|snow|wind|temperature|weather|animal/.test(t)) return 'Weather & environment';
+    if(/battery|charging|power/.test(t)) return 'Battery & power';
+    if(/light|sound|volume/.test(t)) return 'Lighting & sound';
+    if(/lock|alarm|obstacle|traction|camera|efls|lift/.test(t)) return 'Safety & navigation';
+    return 'Mowing';
+  }
+  _settingValue(entity){
+    if(!entity) return '—';
+    const domain=entity.entity_id.split('.')[0];
+    if(domain==='switch') return entity.state==='on'?'ON':'OFF';
+    if(domain==='number'){
+      const unit=entity.attributes.unit_of_measurement||'';
+      const n=Number(entity.state);
+      return `${Number.isFinite(n)?n.toLocaleString():this._prettyState(entity.state)}${unit?` ${unit}`:''}`;
+    }
+    return this._prettyState(entity.state);
+  }
+  _findScheduleEntity(){
+    if(this.config.schedule && this._entity(this.config.schedule)) return this.config.schedule;
+    const states=this._hass?.states||{};
+    const match=Object.keys(states).find(id=>{
+      if(!id.startsWith('sensor.')||!id.endsWith('_schedule')) return false;
+      const st=states[id];
+      return Array.isArray(st?.attributes?.days) && Array.isArray(st?.attributes?.zones);
+    });
+    return match||null;
+  }
+
+  async _openScheduler(){
+    const overlay=this.querySelector('#schedulerOverlay');
+    if(!overlay) return;
+    overlay.classList.add('open');
+    overlay.setAttribute('aria-hidden','false');
+    const host=this.querySelector('#schedulerHost');
+    if(host && !this._schedulerBuilt){
+      host.innerHTML='<div class="schedulerMissing">Loading mowing schedule…</div>';
+    }
+    try{
+      await this._ensureSchedulerCardLoaded();
+      if(!this._schedulerBuilt) this._buildScheduler();
+      const scheduler=this.querySelector('#schedulerHost navimow-scheduler-card');
+      if(scheduler) scheduler.hass=this._hass;
+    }catch(err){
+      console.error('[Navimow] Unable to load scheduler card',err);
+      if(host) host.innerHTML='<div class="schedulerMissing">Unable to load the schedule editor. Close and reopen Schedule, or hard-refresh once.</div>';
+    }
+  }
+
+  _ensureSchedulerCardLoaded(){
+    if(customElements.get('navimow-scheduler-card')) return Promise.resolve();
+    if(this._schedulerLoadPromise) return this._schedulerLoadPromise;
+    const url='/local/navimow_ha_pro/navimow-scheduler-card.js?v=0620';
+    this._schedulerLoadPromise=import(url).then(()=>customElements.whenDefined('navimow-scheduler-card')).catch(err=>{
+      this._schedulerLoadPromise=null;
+      throw err;
+    });
+    return this._schedulerLoadPromise;
+  }
+
+  _closeScheduler(){
+    const overlay=this.querySelector('#schedulerOverlay');
+    if(!overlay) return;
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden','true');
+  }
+
+  _buildScheduler(){
+    const host=this.querySelector('#schedulerHost'); if(!host) return;
+    const entity=this._findScheduleEntity();
+    if(!entity){
+      host.innerHTML='<div class="schedulerMissing">Schedule sensor not found. Restart Home Assistant after installing this version and try again.</div>';
+      return;
+    }
+    if(!customElements.get('navimow-scheduler-card')){
+      host.innerHTML='<div class="schedulerMissing">Loading mowing schedule…</div>';
+      this._schedulerBuilt=false;
+      return;
+    }
+    host.innerHTML='';
+    const card=document.createElement('navimow-scheduler-card');
+    card.setConfig({entity,title:''});
+    card.hass=this._hass;
+    host.appendChild(card);
+    this._schedulerBuilt=true;
+  }
+
+  _openSettings(){
+    this.querySelector('#modePanel')?.classList.remove('open');
+    this.querySelector('#heightPanel')?.classList.remove('open');
+    const overlay=this.querySelector('#settingsOverlay');
+    overlay.classList.add('open'); overlay.setAttribute('aria-hidden','false');
+    if(!this._settingsBuilt) this._renderSettings(); else this._updateSettingsControls();
+  }
+  _closeSettings(){
+    const overlay=this.querySelector('#settingsOverlay');
+    overlay.classList.remove('open'); overlay.setAttribute('aria-hidden','true');
+  }
+  _renderSettings(){
+    const root=this.querySelector('#settingsContent'); if(!root) return;
+    const entities=this._configurationEntities();
+    if(!entities.length){root.innerHTML='<div class="settingsEmpty">No configuration entities were found for this mower.</div>';return;}
+    const order=['Mowing','Weather & environment','Safety & navigation','Battery & power','Lighting & sound','Zone names'];
+    const groups=new Map(order.map(x=>[x,[]]));
+    entities.forEach(e=>{const g=this._settingGroup(e);if(!groups.has(g))groups.set(g,[]);groups.get(g).push(e);});
+    const rowHtml=e=>{
+      const domain=e.entity_id.split('.')[0];
+      const icon=e.attributes.icon||({switch:'mdi:toggle-switch',number:'mdi:tune-variant',select:'mdi:format-list-bulleted',text:'mdi:form-textbox'}[domain]||'mdi:cog');
+      const label=this._escape(this._settingLabel(e));
+      const eid=this._escape(e.entity_id);
+      if(domain==='switch'){
+        const on=e.state==='on';
+        return `<div class="settingRow switchRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="toggleWrap"><span class="toggleState ${on?'on':''}">${on?'ON':'OFF'}</span><button class="toggleSwitch ${on?'on':''}" type="button" data-switch="${eid}" aria-pressed="${on?'true':'false'}" aria-label="Toggle ${label}"><span class="toggleKnob"></span></button></span></div>`;
+      }
+      if(domain==='number'){
+        const unit=e.attributes.unit_of_measurement||'';
+        const raw=Number(e.state); const value=Number.isFinite(raw)?raw:0;
+        const amin=Number(e.attributes.min); const amax=Number(e.attributes.max); const astep=Number(e.attributes.step);
+        const min=Number.isFinite(amin)?amin:0; const max=Number.isFinite(amax)?amax:100;
+        const backendStep=Number.isFinite(astep)&&astep>0?astep:1;
+        const isCutHeight=e.entity_id===this.config.cutting_height || e.entity_id.includes('cutting_height');
+        const isWholePercent=(unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(e.entity_id) || /charging limit|return-to-dock battery/i.test(this._settingLabel(e))));
+        const span=Math.max(max-min,1);
+        const visualStep=isWholePercent?1:(isCutHeight?0.05:Math.max(span/1000,Math.min(backendStep/10,0.1)));
+        const shown=Number.isFinite(raw)?`${raw.toLocaleString()}${unit?` ${this._escape(unit)}`:''}`:'—';
+        const pct=max>min?Math.max(0,Math.min(100,(value-min)/(max-min)*100)):0;
+        return `<div class="settingRow numberRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span class="numberSetting"><span class="numberHead"><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="numberCurrent" data-number-value="${eid}">${shown}</span></span><input class="settingSlider" style="--pct:${pct}%" type="range" data-number="${eid}" data-backend-step="${backendStep}" min="${min}" max="${max}" step="${visualStep}" value="${value}" aria-label="${label}"><span class="settingScale"><span>${min}${unit?` ${this._escape(unit)}`:''}</span><span>${max}${unit?` ${this._escape(unit)}`:''}</span></span></span></div>`;
+      }
+      const value=this._settingValue(e);
+      return `<button class="settingRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="settingValue"><span>${this._escape(value)}</span><ha-icon icon="mdi:chevron-right"></ha-icon></span></button>`;
+    };
+    root.innerHTML=[...groups.entries()].filter(([,items])=>items.length).map(([group,items])=>`<section class="settingsGroup"><h3 class="settingsGroupTitle">${this._escape(group)}</h3><div class="settingsList">${items.map(rowHtml).join('')}</div></section>`).join('');
+    this._settingsBuilt=true;
+    root.querySelectorAll('.settingRow:not(.switchRow):not(.numberRow)').forEach(row=>row.addEventListener('click',()=>this._showMoreInfo(row.dataset.entity)));
+    root.querySelectorAll('.toggleSwitch').forEach(btn=>btn.addEventListener('click',async e=>{
+      e.stopPropagation(); const entityId=btn.dataset.switch; const current=btn.classList.contains('on'); const next=!current;
+      btn.classList.toggle('on',next); btn.setAttribute('aria-pressed',next?'true':'false');
+      const state=btn.closest('.toggleWrap')?.querySelector('.toggleState'); if(state){state.textContent=next?'ON':'OFF';state.classList.toggle('on',next);}
+      this._pendingSettings.set(entityId,{type:'switch',value:next?'on':'off',expires:Date.now()+15000});
+      try{await this._service('switch',next?'turn_on':'turn_off',{entity_id:entityId});}
+      catch(_e){
+        this._pendingSettings.delete(entityId);
+        btn.classList.toggle('on',current); btn.setAttribute('aria-pressed',current?'true':'false');
+        if(state){state.textContent=current?'ON':'OFF';state.classList.toggle('on',current);}
+      }
+    }));
+    root.querySelectorAll('.settingSlider').forEach(slider=>{
+      const entityId=slider.dataset.number; let raf=0;
+      const preview=()=>{
+        raf=0; this._paintSettingSlider(slider);
+        const entity=this._entity(entityId); const unit=entity?.attributes?.unit_of_measurement||''; const n=Number(slider.value);
+        const wholePct=unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(entityId)); const out=root.querySelector(`[data-number-value="${CSS.escape(entityId)}"]`); if(out) out.textContent=`${Number.isFinite(n)?(wholePct?Math.round(n).toLocaleString():n.toLocaleString(undefined,{maximumFractionDigits:2})):'—'}${unit?` ${unit}`:''}`;
+      };
+      slider.addEventListener('pointerdown',()=>{slider.dataset.dragging='1';});
+      slider.addEventListener('input',()=>{if(!raf) raf=requestAnimationFrame(preview);});
+      const commit=async()=>{
+        slider.dataset.dragging='0'; if(raf){cancelAnimationFrame(raf);raf=0;} preview();
+        let n=Number(slider.value); if(!Number.isFinite(n)) return;
+        const entity=this._entity(entityId); const amin=Number(entity?.attributes?.min), amax=Number(entity?.attributes?.max), astep=Number(entity?.attributes?.step);
+        const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height');
+        const unit=entity?.attributes?.unit_of_measurement||''; const isWholePercent=(unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(entityId) || /charging limit|return-to-dock battery/i.test(this._settingLabel(entity||{}))));
+        if(isWholePercent){n=Math.round(n);}
+        else if(!isCutHeight && Number.isFinite(astep)&&astep>0 && Number.isFinite(amin)){n=amin+Math.round((n-amin)/astep)*astep;}
+        if(Number.isFinite(amin)) n=Math.max(amin,n); if(Number.isFinite(amax)) n=Math.min(amax,n);
+        const target=Number(n.toFixed(3));
+        this._pendingSettings.set(entityId,{type:'number',value:target,expires:Date.now()+45000});
+        slider.value=String(target); preview();
+        try{await this._service('number','set_value',{entity_id:entityId,value:target});}
+        catch(_e){this._pendingSettings.delete(entityId); this._updateSettingsControls();}
+      };
+      slider.addEventListener('change',commit);
+      slider.addEventListener('pointerup',()=>{slider.dataset.dragging='0';});
+      this._paintSettingSlider(slider);
+    });
+  }
+  _updateSettingsControls(){
+    const root=this.querySelector('#settingsContent'); if(!root) return;
+    const now=Date.now();
+    root.querySelectorAll('.toggleSwitch[data-switch]').forEach(btn=>{
+      const entityId=btn.dataset.switch; const e=this._entity(entityId); if(!e) return;
+      const pending=this._pendingSettings.get(entityId);
+      let on=e.state==='on';
+      if(pending?.type==='switch'){
+        if(e.state===pending.value){this._pendingSettings.delete(entityId); on=e.state==='on';}
+        else if(now<pending.expires){on=pending.value==='on';}
+        else{this._pendingSettings.delete(entityId);}
+      }
+      btn.classList.toggle('on',on); btn.setAttribute('aria-pressed',on?'true':'false');
+      const state=btn.closest('.toggleWrap')?.querySelector('.toggleState'); if(state){state.textContent=on?'ON':'OFF';state.classList.toggle('on',on);}
+    });
+    root.querySelectorAll('.settingSlider[data-number]').forEach(slider=>{
+      const entityId=slider.dataset.number; const e=this._entity(entityId); if(!e) return;
+      const actual=Number(e.state); if(!Number.isFinite(actual)) return;
+      const pending=this._pendingSettings.get(entityId);
+      let value=actual;
+      if(pending?.type==='number'){
+        const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height');
+        const tolerance=isCutHeight?0.06:0.01;
+        if(Math.abs(actual-Number(pending.value))<=tolerance){this._pendingSettings.delete(entityId); value=actual;}
+        else if(now<pending.expires){value=Number(pending.value);}
+        else{this._pendingSettings.delete(entityId);}
+      }
+      if(slider.dataset.dragging!=='1') slider.value=String(value);
+      this._paintSettingSlider(slider);
+      if(slider.dataset.dragging!=='1'){
+        const unit=e.attributes.unit_of_measurement||''; const out=root.querySelector(`[data-number-value="${CSS.escape(entityId)}"]`);
+        if(out) out.textContent=`${value.toLocaleString()}${unit?` ${unit}`:''}`;
+      }
+    });
+  }
+  _paintSettingSlider(slider){
+    const min=Number(slider.min), max=Number(slider.max), value=Number(slider.value);
+    const pct=Number.isFinite(min)&&Number.isFinite(max)&&max>min&&Number.isFinite(value)?Math.max(0,Math.min(100,(value-min)/(max-min)*100)):0;
+    slider.style.setProperty('--pct',`${pct}%`);
+  }
+
+  _showMoreInfo(entityId){
+    if(!entityId) return;
+    const ev=new CustomEvent('hass-more-info',{detail:{entityId},bubbles:true,composed:true});
+    this.dispatchEvent(ev);
+  }
+
+  _toggleModePanel(){
+    const panel=this.querySelector('#modePanel');
+    panel.classList.toggle('open');
+    if(panel.classList.contains('open')) this.querySelector('#heightPanel').classList.remove('open');
+  }
+  async _setWorkMode(option){
+    if(!option) return;
+    await this._service('select','select_option',{entity_id:this.config.work_mode,option});
+  }
+
+  _toggleHeightPanel(){
+    this.querySelector('#modePanel').classList.remove('open');
+    const panel=this.querySelector('#heightPanel');
+    panel.classList.toggle('open');
+  }
+  _previewHeight(raw){
+    const n=Number(raw); if(!Number.isFinite(n)) return;
+    const h=this._entity(this.config.cutting_height); const unit=h?.attributes?.unit_of_measurement||'';
+    this.querySelector('#heightValue').textContent=`${n.toFixed(1)} ${unit}`;
+    this.querySelector('#height').textContent=`${n.toFixed(1)} ${unit}`;
+  }
+  async _setHeight(raw){
+    const n=Number(raw); if(!Number.isFinite(n)) return;
+    const target=Number(n.toFixed(1));
+    this._pendingSettings.set(this.config.cutting_height,{type:'number',value:target,expires:Date.now()+45000});
+    this._previewHeight(target);
+    const slider=this.querySelector('#heightSlider'); if(slider){slider.value=String(target);this._paintSettingSlider(slider);}
+    await this._service('number','set_value',{entity_id:this.config.cutting_height,value:target});
+  }
+
+  async _mow(){ const zones=[...this._selected]; if(!zones.length)return; await this._service('navimow_ha_pro','mow',{zones,reset:true}); }
+  async _service(domain,service,data){
+    const err=this.querySelector('#error'); err.style.display='none';
+    try{await this._hass.callService(domain,service,data);}catch(e){err.textContent=e?.message||String(e);err.style.display='block';}
+  }
+  _escape(v){ const d=document.createElement('div');d.textContent=String(v??'');return d.innerHTML; }
+}
+if(!customElements.get('navimow-zone-dashboard-card')) customElements.define('navimow-zone-dashboard-card',NavimowZoneDashboardCard);
+window.customCards=window.customCards||[];
+window.customCards.push({type:'navimow-zone-dashboard-card',name:'Navimow Zone Dashboard',description:'Responsive Navimow dashboard with direct multi-zone map selection.'});

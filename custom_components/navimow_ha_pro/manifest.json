@@ -1,0 +1,16 @@
+{
+  "domain": "navimow_ha_pro",
+  "name": "Navimow HA Pro",
+  "codeowners": [
+    "@ericallard3414-arch"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/ericallard3414-arch/navimow-ha-pro",
+  "issue_tracker": "https://github.com/ericallard3414-arch/navimow-ha-pro/issues",
+  "integration_type": "device",
+  "iot_class": "cloud_polling",
+  "requirements": [
+    "navimow-sdk>=0.1.2"
+  ],
+  "version": "0.7.0-beta.1"
+}

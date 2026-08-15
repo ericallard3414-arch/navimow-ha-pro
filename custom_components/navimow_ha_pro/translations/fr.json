@@ -1,0 +1,68 @@
+{
+  "config": {
+    "step": {
+      "oauth2_authorize": {
+        "description": "Cliquez sur 'Confirmer' pour autoriser Home Assistant à accéder à votre compte Navimow.\n\nVous serez redirigé vers la page de connexion Navimow pour terminer l'authentification."
+      },
+      "user": {
+        "title": "Configuration de l'intégration Navimow",
+        "description": "Configurer l'intégration de la tondeuse Navimow"
+      },
+      "reauth_confirm": {
+        "title": "Nouvelle authentification requise",
+        "description": "Votre authentification Navimow a expiré. Veuillez vous ré-authentifier pour continuer à utiliser l'intégration."
+      },
+      "private_login": {
+        "title": "Terminer la configuration Navimow",
+        "description": "Activez automatiquement la carte LiDAR, les zones, la télémétrie et les commandes avancées. Le mot de passe sert uniquement à obtenir des jetons renouvelables et n'est pas conservé.",
+        "data": {
+          "lidar_cloud_enabled": "Activer les cartes et commandes avancées",
+          "email": "Courriel du compte Navimow",
+          "password": "Mot de passe du compte Navimow"
+        }
+      }
+    },
+    "error": {
+      "authorization_failed": "L'autorisation a échoué. Veuillez réessayer.",
+      "token_exchange_failed": "Échec de l'échange du code d'autorisation contre un jeton.",
+      "callback_failed": "Échec du traitement du rappel OAuth2.",
+      "cannot_connect": "Impossible de se connecter au service Navimow.",
+      "invalid_auth": "L'authentification a échoué. Veuillez vérifier votre configuration.",
+      "lidar_credentials_required": "Entrez le courriel et le mot de passe Navimow, ou désactivez les cartes et commandes avancées.",
+      "lidar_invalid_auth": "Navimow a refusé la connexion au nuage privé. Vérifiez le courriel et le mot de passe.",
+      "unknown": "Une erreur inconnue s'est produite.",
+      "missing_config": "Configuration manquante. Veuillez configurer CLIENT_ID et CLIENT_SECRET dans const.py."
+    },
+    "abort": {
+      "single_instance_allowed": "Une seule instance de Navimow est autorisée.",
+      "already_configured": "L'instance Navimow est déjà configurée.",
+      "reauth_successful": "Nouvelle authentification réussie."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Navimow",
+        "description": "Configurez le téléchargement automatique de la carte LiDAR. Le mot de passe sert une seule fois à obtenir des jetons renouvelables et n'est pas conservé.",
+        "data": {
+          "lidar_cloud_enabled": "Télécharger automatiquement la carte LiDAR",
+          "email": "Courriel du compte Navimow",
+          "password": "Mot de passe du compte Navimow"
+        }
+      }
+    },
+    "error": {
+      "lidar_credentials_required": "Entrez le courriel et le mot de passe Navimow pour activer les cartes LiDAR automatiques.",
+      "lidar_invalid_auth": "Navimow a refusé la connexion au nuage LiDAR. Vérifiez le courriel et le mot de passe.",
+      "cannot_connect": "Impossible de joindre le nuage Navimow.",
+      "unknown": "La configuration LiDAR a échoué. Consultez le journal Home Assistant."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Batterie"
+      }
+    }
+  }
+}
