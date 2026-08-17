@@ -272,7 +272,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
         </style>
         <div class="shell">
           <div class="top">
-            <div class="topLeft"><button class="homeBtn" id="homeBtn" type="button" aria-label="Return to The 551 dashboard">⌂</button><div><div class="model">Navimow i215 LiDAR</div><div class="sub" id="online">Interactive zone mowing</div></div></div>
+            <div class="topLeft"><button class="homeBtn" id="homeBtn" type="button" aria-label="Return to The 551 dashboard">⌂</button><div><div class="model" id="mowerTitle">Navimow</div><div class="sub" id="online">Interactive zone mowing</div></div></div>
             <div class="topRight"><div class="topstats"><div class="pill"><span class="dot"></span><span id="statusTop">—</span></div><div class="pill battery">🔋 <span id="batteryTop">—%</span></div></div><button class="roundAction" id="schedulerBtn" type="button" title="Mowing schedule" aria-label="Open mowing schedule"><ha-icon icon="mdi:calendar-clock"></ha-icon></button><button class="roundAction" id="settingsBtn" type="button" title="Configuration" aria-label="Open mower configuration"><ha-icon icon="mdi:cog"></ha-icon></button></div>
           </div>
           <div class="mapWrap" id="mapWrap">
@@ -359,12 +359,28 @@ class NavimowZoneDashboardCard extends HTMLElement {
 
   _entity(id){ return this._hass?.states?.[id]; }
   _state(id,fallback='—'){ const e=this._entity(id); return e ? e.state : fallback; }
+  _mowerDisplayName(cam=null){
+    const configured=String(this.config.name||'').trim();
+    if(configured) return configured;
+    const mower=this._entity(this.config.mower);
+    const friendly=String(mower?.attributes?.friendly_name||'').trim();
+    if(friendly) return friendly;
+    const camera=cam||this._entity(this.config.camera);
+    const deviceName=String(camera?.attributes?.mower_name||'').trim();
+    if(deviceName) return deviceName;
+    const model=String(camera?.attributes?.mower_model||'').trim();
+    if(model && model.toLowerCase()!=='unknown') return /^navimow\b/i.test(model)?model:`Navimow ${model}`;
+    const cameraName=String(camera?.attributes?.friendly_name||'').replace(/\s+Live mowing map$/i,'').trim();
+    return cameraName||'Navimow';
+  }
   _prettyState(v){ return String(v||'unknown').replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase()); }
   _fmtArea(v){ const n=Number(v); return Number.isFinite(n) ? `${Math.round(n).toLocaleString()} ft²` : '—'; }
 
   _update(){
     const cam=this._entity(this.config.camera);
     if(!cam) return;
+    const mowerTitle=this.querySelector('#mowerTitle');
+    if(mowerTitle) mowerTitle.textContent=this._mowerDisplayName(cam);
     const battery=this._state(this.config.battery, cam.attributes.battery ?? '—');
     const rawStatus=String(this._state(this.config.status,this._state(this.config.mower))||'unknown').trim().toLowerCase();
     const paused=/pause/.test(rawStatus);
@@ -751,7 +767,10 @@ class NavimowZoneDashboardCard extends HTMLElement {
   }
   _settingLabel(entity){
     let name=entity?.attributes?.friendly_name||entity?.entity_id||'Setting';
-    name=name.replace(/^Outdoor Navimow i215 LiDAR\s*/i,'').replace(/^Navimow i215 LiDAR\s*/i,'');
+    const mowerName=this._mowerDisplayName();
+    for(const prefix of [`Outdoor ${mowerName}`,mowerName,'Outdoor']){
+      if(prefix && name.toLowerCase().startsWith(prefix.toLowerCase())) name=name.slice(prefix.length).trim();
+    }
     return name||'Setting';
   }
   _settingGroup(entity){
