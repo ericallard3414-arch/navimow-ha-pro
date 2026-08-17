@@ -1,3 +1,10 @@
+## 0.7.7
+
+- Add a Dark mode switch to the dashboard card Configuration drawer.
+- Apply the dark palette instantly across the dashboard, map surround, controls, dialogs and settings.
+- Remember the selected appearance in the current browser while leaving Home Assistant's global theme unchanged.
+- Allow `dark_mode: true` or `dark_mode: false` in YAML to set an explicit initial appearance.
+
 ## 0.7.6
 
 - Auto-discover the bundled dashboard card entities for every supported Navimow model.
