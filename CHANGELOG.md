@@ -1,3 +1,10 @@
+## 0.7.10
+
+- Prevent Recorder warnings when large X-series LiDAR maps exceed Home Assistant's 16 KiB state-attribute limit.
+- Stop duplicating live map geometry and trail attributes on the hidden Map background camera.
+- Compact zone polygons and live trail overlays while preserving the full-resolution SVG camera image and smooth mower movement.
+- Keep original map bounds so polygon compaction cannot shift card projection or mower positioning.
+
 ## 0.7.9
 
 - Prepare the repository for submission to the official HACS default catalog.
