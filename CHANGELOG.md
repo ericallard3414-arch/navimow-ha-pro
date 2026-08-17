@@ -1,3 +1,9 @@
+## 0.7.3
+
+- Hide the internal Map background camera from normal Home Assistant device views by default.
+- Keep the background camera enabled and available to the bundled JS card for smooth map animation.
+- Preserve the standalone Live mowing map as the only user-facing map camera.
+
 ## 0.7.2
 
 - Restore smooth, event-driven mower movement and live trail drawing in the bundled JS card.

@@ -63,6 +63,9 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         else:
             self._attr_name = "Map background"
             self._attr_unique_id = f"{DOMAIN}_{device.id}_map_background"
+            # Internal rendering dependency for the bundled dashboard card.
+            # Keep it active and addressable, but out of normal device views.
+            self._attr_entity_registry_visible_default = False
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device.id)},
             name=device.name,
