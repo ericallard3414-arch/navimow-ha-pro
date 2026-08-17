@@ -57,7 +57,7 @@ PLATFORMS: list[Platform] = [
 
 _SCHEDULER_CARD = "navimow-scheduler-card.js"
 _ZONE_DASHBOARD_CARD = "navimow-zone-dashboard-card.js"
-_FRONTEND_CARD_VERSION = "0700b3"
+_FRONTEND_CARD_VERSION = "0700b4"
 _FRONTEND_KEY = f"{DOMAIN}_frontend_registered"
 
 
