@@ -1,3 +1,10 @@
+## 0.7.8
+
+- Replace the hard-coded i215 dashboard heading with the mower's Home Assistant name.
+- Fall back to the Navimow device name and model for every supported mower.
+- Support an optional card-level `name:` override.
+- Remove the i215-specific prefix handling from configuration labels.
+
 ## 0.7.7
 
 - Add a Dark mode switch to the dashboard card Configuration drawer.
