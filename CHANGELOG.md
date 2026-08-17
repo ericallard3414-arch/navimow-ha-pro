@@ -1,3 +1,10 @@
+## 0.7.2
+
+- Restore smooth, event-driven mower movement and live trail drawing in the bundled JS card.
+- Add a terrain-only background camera for the JS card while keeping the standalone live camera complete.
+- Prevent duplicate mower/trail layers without falling back to 20-second camera-frame movement.
+- Bump the frontend cache version so browsers load the restored smooth overlay immediately.
+
 ## 0.7.1
 
 - Show exactly one mower and one mowing trail in the bundled JS dashboard card.
