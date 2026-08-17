@@ -36,6 +36,7 @@
     "abort": {
       "single_instance_allowed": "Only one Navimow instance is allowed.",
       "already_configured": "Navimow is already configured.",
+      "already_in_progress": "Navimow HA Pro setup is already open. Close the existing setup dialog, then try again. If no dialog is open, restart Home Assistant.",
       "reauth_successful": "Re-authentication successful."
     }
   },
