@@ -16,6 +16,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
       settings_match: null,
       ...config,
     };
+    this._darkMode = typeof config.dark_mode === "boolean" ? config.dark_mode : this._loadDarkMode();
     this._selected = new Set();
     this._lastMapSignature = "";
     this._rendered = false;
@@ -33,6 +34,30 @@ class NavimowZoneDashboardCard extends HTMLElement {
     this._mowerAnim = null;
     this._lastMowerTargetAt = 0;
     this._lastMowerPoseSignature = "";
+  }
+
+  _loadDarkMode() {
+    try { return localStorage.getItem("navimow-ha-pro-dark-mode") === "true"; }
+    catch (_error) { return false; }
+  }
+
+  _applyDarkMode() {
+    this.querySelector(".shell")?.classList.toggle("dark", !!this._darkMode);
+    this.setAttribute("data-theme", this._darkMode ? "dark" : "light");
+  }
+
+  _setDarkMode(enabled) {
+    this._darkMode = !!enabled;
+    try { localStorage.setItem("navimow-ha-pro-dark-mode", String(this._darkMode)); }
+    catch (_error) {}
+    this._applyDarkMode();
+    const btn=this.querySelector('[data-dark-mode]');
+    if(btn){
+      btn.classList.toggle('on',this._darkMode);
+      btn.setAttribute('aria-pressed',this._darkMode?'true':'false');
+      const state=btn.closest('.toggleWrap')?.querySelector('.toggleState');
+      if(state){state.textContent=this._darkMode?'ON':'OFF';state.classList.toggle('on',this._darkMode);}
+    }
   }
 
   set hass(hass) {
@@ -170,6 +195,25 @@ class NavimowZoneDashboardCard extends HTMLElement {
           .rowActions{display:grid;grid-template-columns:1fr 1fr;gap:clamp(7px,.7vw,12px);margin-top:clamp(7px,.75vh,13px)}.secondary{height:clamp(42px,3.8vh,58px);border:0;border-radius:clamp(13px,1vw,19px);background:var(--orange);font-size:clamp(13px,1vw,17px);font-weight:800;cursor:pointer;color:#fff;box-shadow:0 4px 14px rgba(255,100,30,.18);display:flex;align-items:center;justify-content:center;gap:10px}.secondary:active{background:var(--orange-dark);transform:scale(.995)}.secondary:disabled{background:#d7d9dc;color:#8d9297;box-shadow:none;cursor:not-allowed;transform:none}.resumeInlineBtn:disabled,.resumeAction:disabled{opacity:.48;cursor:not-allowed}.pauseIcon{display:inline-flex;gap:4px;align-items:center}.pauseIcon i{display:block;width:4px;height:17px;border-radius:2px;background:currentColor}
           .modePanel{display:none;margin:clamp(8px,.9vh,16px) 0 clamp(8px,.9vh,16px);padding:clamp(12px,1.1vh,18px) clamp(12px,1.2vw,20px);border:1px solid var(--line);border-radius:clamp(14px,1.1vw,20px);background:#fff}.modePanel.open{display:block}.modeTitle{font-weight:800;font-size:clamp(13px,1vw,17px);margin-bottom:10px}.modeChoices{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(6px,.7vw,12px)}.modeChoice{min-height:clamp(42px,4.2vh,58px);border:1px solid var(--line);border-radius:clamp(12px,1vw,18px);background:var(--soft);color:var(--ink);font-size:clamp(11px,.9vw,15px);font-weight:760;cursor:pointer;padding:8px}.modeChoice.active{background:var(--orange);border-color:var(--orange);color:#fff;box-shadow:0 4px 14px rgba(255,100,30,.18)}.modeChoice:active{transform:scale(.99)}
           .heightPanel{display:none;margin:clamp(8px,.9vh,16px) 0 clamp(8px,.9vh,16px);padding:clamp(12px,1.1vh,18px) clamp(12px,1.2vw,20px);border:1px solid var(--line);border-radius:clamp(14px,1.1vw,20px);background:#fff}.heightPanel.open{display:block}.heightTop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.heightTitle{font-weight:800;font-size:clamp(13px,1vw,17px)}.heightValue{font-weight:850;color:var(--orange);font-size:clamp(18px,1.45vw,25px)}.heightSlider{--pct:0%;-webkit-appearance:none;appearance:none;width:100%;height:36px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:none}.heightSlider::-webkit-slider-runnable-track{height:7px;border-radius:999px;background:linear-gradient(to right,var(--orange) 0,var(--orange) var(--pct),#d9dde1 var(--pct),#d9dde1 100%)}.heightSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 8px rgba(0,0,0,.24);margin-top:-9.5px}.heightSlider::-moz-range-track{height:7px;border-radius:999px;background:#d9dde1}.heightSlider::-moz-range-progress{height:7px;border-radius:999px;background:var(--orange)}.heightSlider::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 8px rgba(0,0,0,.24)}.heightScale{display:flex;justify-content:space-between;color:var(--muted);font-size:clamp(9px,.72vw,12px);margin-top:1px}.resumeInline{display:none;margin:0 0 10px;padding:12px;border:1px solid #ffd8c3;border-radius:16px;background:#fff8f4}.resumeInline.show{display:block}.resumeInlineText{font-size:13px;font-weight:800;color:#5b4539;margin-bottom:9px}.resumeInlineActions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.resumeInlineBtn{height:44px;border-radius:13px;font-weight:900;font-size:13px;cursor:pointer}.resumeInlineBtn.resume{background:var(--orange);border:1px solid var(--orange);color:#fff}.resumeInlineBtn.fresh{background:#fff;border:1px solid var(--line);color:var(--ink)}@media(max-width:600px){.resumeInlineActions{grid-template-columns:1fr}}.resumeOverlay{position:absolute;inset:0;z-index:100020;display:none;align-items:center;justify-content:center;padding:22px;background:rgba(13,17,21,.42);backdrop-filter:blur(8px)}.resumeOverlay.open{display:flex}.resumeDialog{width:min(92%,560px);background:#fff;border-radius:26px;padding:24px;box-shadow:0 24px 80px rgba(0,0,0,.28);border:1px solid rgba(0,0,0,.08)}.resumeIcon{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#fff1e9;color:var(--orange);margin-bottom:14px}.resumeIcon ha-icon{--mdc-icon-size:30px}.resumeTitle{font-size:24px;font-weight:900;letter-spacing:-.4px}.resumeText{margin-top:7px;color:var(--muted);font-size:15px;line-height:1.45}.resumeProgress{margin-top:16px;padding:12px 14px;border-radius:15px;background:var(--soft);font-weight:800}.resumeActions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}.resumeAction{height:52px;border-radius:16px;border:1px solid var(--line);font-weight:900;font-size:14px;cursor:pointer}.resumeAction.resume{background:var(--orange);border-color:var(--orange);color:#fff}.resumeAction.fresh{background:#fff;color:var(--ink)}.resumeCancel{width:100%;height:42px;margin-top:8px;border:0;background:transparent;color:var(--muted);font-weight:800;cursor:pointer}@media(max-width:600px){.resumeActions{grid-template-columns:1fr}.resumeDialog{padding:20px}.resumeTitle{font-size:21px}}.hint{text-align:center;color:var(--muted);font-size:clamp(9px,.75vw,13px);margin-top:clamp(6px,.7vh,14px)}.error{display:none;color:#b42318;background:#fff0ed;padding:11px 14px;border-radius:14px;margin-top:12px;font-size:14px}
+          .shell.dark{--ink:#f2f5f7;--muted:#aeb6bf;--line:#343c45;--soft:#252c34;background:#11161b;color:var(--ink);color-scheme:dark}
+          .shell.dark .top,.shell.dark .panel,.shell.dark .settingsDrawer,.shell.dark .settingsHeader,.shell.dark .settingsBody,.shell.dark .schedulerDrawer,.shell.dark .schedulerHeader,.shell.dark .schedulerBody{background:#11161b;color:var(--ink)}
+          .shell.dark .mapWrap{background:linear-gradient(#11171d,#090d11)}
+          .shell.dark .pill,.shell.dark .metric,.shell.dark .minor,.shell.dark .modePanel,.shell.dark .heightPanel,.shell.dark .settingsList,.shell.dark .settingRow,.shell.dark .resumeDialog,.shell.dark .resumeProgress,.shell.dark .modeChoice,.shell.dark .resumeAction.fresh{background:#1c232a;color:var(--ink);border-color:var(--line)}
+          .shell.dark .settingRow:active,.shell.dark .minor:active{background:#272f38}
+          .shell.dark .settingsGroupTitle{color:#aeb6bf}
+          .shell.dark .settingIcon,.shell.dark .resumeIcon{background:#3a241b;color:var(--orange)}
+          .shell.dark .mapBadge,.shell.dark .mapExpand{background:rgba(25,31,38,.94);color:var(--ink);border-color:rgba(255,255,255,.1)}
+          .shell.dark .progressTrack{background:#343c45}
+          .shell.dark .chip{background:#35251f;color:#ff9a6c;border-color:#70432f}
+          .shell.dark .error{background:#3b1f1c;color:#ffb4aa}
+          .shell.dark .settingEntity{color:#77818b}
+          .shell.dark .toggleSwitch{background:#4a535d}
+          .shell.dark .toggleSwitch.on{background:var(--orange)}
+          .shell.dark .heightSlider::-webkit-slider-thumb,.shell.dark .settingSlider::-webkit-slider-thumb{background:#e9edf1}
+          .shell.dark .heightSlider::-moz-range-thumb,.shell.dark .settingSlider::-moz-range-thumb{background:#e9edf1}
+          .shell.dark .settingsOverlay{background:rgba(0,0,0,.62)}
+          .shell.dark .resumeOverlay{background:rgba(0,0,0,.62)}
+          .shell.dark .mapWrap.fullscreen{background:#0b1014!important}
           .settingsOverlay{position:absolute;inset:0;z-index:50;background:rgba(17,23,28,.30);backdrop-filter:blur(4px);display:none;align-items:stretch;justify-content:flex-end;overflow:hidden}.settingsOverlay.open{display:flex}.settingsDrawer{position:absolute;top:0;right:0;width:min(90vw,1080px);max-width:calc(100% - 12px);height:100%;box-sizing:border-box;background:#fff;box-shadow:-12px 0 44px rgba(0,0,0,.18);display:flex;flex-direction:column;overflow:hidden}.settingsHeader{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(20px,2.2vh,34px) clamp(20px,2.2vw,34px);border-bottom:1px solid var(--line)}.settingsHeaderTitle{display:flex;align-items:center;gap:12px;font-size:clamp(22px,1.8vw,32px);font-weight:800}.settingsHeaderTitle ha-icon{color:var(--orange);--mdc-icon-size:clamp(28px,2.1vw,38px)}.settingsClose{width:clamp(46px,3.2vw,60px);height:clamp(46px,3.2vw,60px);border:0;border-radius:50%;background:var(--soft);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer}.settingsClose ha-icon{--mdc-icon-size:clamp(24px,1.8vw,30px)}.settingsBody{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;padding:clamp(16px,1.7vh,26px) clamp(18px,2vw,32px) clamp(28px,3vh,48px);box-sizing:border-box;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.settingsIntro{color:var(--muted);font-size:clamp(12px,.95vw,16px);margin:0 0 18px}.settingsGroup{margin-bottom:clamp(18px,2.1vh,30px)}.settingsGroupTitle{font-size:clamp(13px,1vw,17px);font-weight:850;letter-spacing:.45px;text-transform:uppercase;margin:0 0 9px;color:#555e66}.settingsList{border:1px solid var(--line);border-radius:clamp(16px,1.2vw,22px);overflow:hidden;background:#fff}.settingRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:clamp(12px,1.1vw,18px);min-height:clamp(58px,5.8vh,82px);padding:clamp(10px,1vh,15px) clamp(14px,1.25vw,20px);border:0;border-bottom:1px solid var(--line);width:100%;max-width:100%;box-sizing:border-box;background:#fff;color:var(--ink);text-align:left;cursor:pointer;font:inherit;overflow:hidden}.settingRow:last-child{border-bottom:0}.settingRow:active{background:var(--soft)}.settingIcon{width:clamp(38px,2.8vw,50px);height:clamp(38px,2.8vw,50px);border-radius:50%;background:#fff1ea;color:var(--orange);display:flex;align-items:center;justify-content:center}.settingIcon ha-icon{--mdc-icon-size:clamp(21px,1.55vw,27px)}.settingName{font-size:clamp(14px,1.05vw,18px);font-weight:720}.settingEntity{font-size:clamp(9px,.68vw,11px);color:#a0a6ac;margin-top:2px;display:none}.settingValue{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:clamp(12px,.95vw,16px);font-weight:650;max-width:260px;text-align:right}.settingValue .on{color:var(--orange)}.settingValue ha-icon{--mdc-icon-size:clamp(18px,1.3vw,23px);color:#a5abb1}.settingsEmpty{padding:24px;text-align:center;color:var(--muted)}
           .settingRow.switchRow{cursor:default}.settingRow.numberRow{grid-template-columns:auto minmax(0,1fr);cursor:default;padding-top:clamp(12px,1.2vh,18px);padding-bottom:clamp(12px,1.2vh,18px)}.settingRow.numberRow:active,.settingRow.switchRow:active{background:#fff}.numberSetting{min-width:0}.numberHead{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:clamp(8px,.8vh,12px)}.numberCurrent{font-size:clamp(13px,1vw,17px);font-weight:850;color:var(--orange);white-space:nowrap}.settingSlider{--pct:0%;-webkit-appearance:none;appearance:none;width:100%;height:34px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:none}.settingSlider::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(to right,var(--orange) 0,var(--orange) var(--pct),#d9dde1 var(--pct),#d9dde1 100%)}.settingSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 7px rgba(0,0,0,.22);margin-top:-9px}.settingSlider::-moz-range-track{height:6px;border-radius:999px;background:#d9dde1}.settingSlider::-moz-range-progress{height:6px;border-radius:999px;background:var(--orange)}.settingSlider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 7px rgba(0,0,0,.22)}.settingSlider{transition:filter .15s ease}.settingSlider:active{filter:drop-shadow(0 2px 5px rgba(255,100,30,.18))}.settingScale{display:flex;justify-content:space-between;gap:12px;color:#a0a6ac;font-size:clamp(9px,.7vw,12px);margin-top:1px}.toggleWrap{display:flex;align-items:center;gap:clamp(8px,.7vw,12px)}.toggleState{min-width:30px;color:var(--muted);font-size:clamp(11px,.85vw,14px);font-weight:800;text-align:right}.toggleState.on{color:var(--orange)}.toggleSwitch{position:relative;width:clamp(52px,3.8vw,66px);height:clamp(30px,2.35vw,38px);border:0;border-radius:999px;background:#cfd3d7;cursor:pointer;padding:0;transition:background .18s ease,box-shadow .18s ease;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}.toggleSwitch.on{background:var(--orange);box-shadow:0 3px 12px rgba(255,100,30,.22)}.toggleKnob{position:absolute;top:3px;left:3px;width:calc(100% / 2 - 3px);height:calc(100% - 6px);border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.25);transition:transform .18s ease}.toggleSwitch.on .toggleKnob{transform:translateX(100%)}
           .schedulerOverlay{position:absolute;inset:0;z-index:70;background:rgba(18,22,26,.42);backdrop-filter:blur(7px);display:none;align-items:center;justify-content:center;padding:clamp(16px,2.2vw,42px);box-sizing:border-box;overflow:hidden}.schedulerOverlay.open{display:flex}.schedulerDrawer{position:relative;width:min(92vw,1180px);height:min(88vh,1500px);max-width:100%;max-height:100%;background:#fff;border-radius:clamp(24px,2vw,38px);box-shadow:0 24px 80px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;animation:schedulePop .16s ease-out}.schedulerHeader{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(18px,2vh,30px) clamp(20px,2.2vw,34px);border-bottom:1px solid var(--line);background:#fff}.schedulerHeaderTitle{display:flex;align-items:center;gap:12px;font-size:clamp(23px,1.9vw,34px);font-weight:850;color:var(--ink)}.schedulerHeaderTitle ha-icon{color:var(--orange);--mdc-icon-size:clamp(29px,2.1vw,39px)}.schedulerClose{position:relative;z-index:5;width:clamp(50px,3.5vw,64px);height:clamp(50px,3.5vw,64px);border:0;border-radius:50%;background:var(--orange);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;box-shadow:0 4px 14px rgba(255,100,30,.24)}.schedulerClose ha-icon{pointer-events:none;--mdc-icon-size:clamp(26px,1.9vw,32px)}.schedulerClose:active{transform:scale(.95);background:var(--orange-dark)}.schedulerBody{flex:1 1 auto;min-height:0;overflow:auto;background:#f5f6f7;padding:clamp(12px,1.3vw,22px);box-sizing:border-box;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.schedulerHost{min-height:100%;max-width:100%;box-sizing:border-box}.schedulerMissing{margin:30px;padding:24px;background:#fff;border:1px solid var(--line);border-radius:20px;text-align:center;color:var(--muted)}@keyframes schedulePop{from{opacity:0;transform:scale(.975) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
@@ -259,6 +303,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
           <div class="settingsOverlay" id="settingsOverlay" aria-hidden="true"><div class="settingsDrawer" role="dialog" aria-modal="true" aria-label="Navimow configuration"><div class="settingsHeader"><div class="settingsHeaderTitle"><ha-icon icon="mdi:cog"></ha-icon><span>Configuration</span></div><button class="settingsClose" id="settingsClose" type="button" aria-label="Close configuration"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="settingsBody"><p class="settingsIntro">All Home Assistant configuration entities for this mower. Tap any setting to adjust it.</p><div id="settingsContent"></div></div></div></div>
           <div class="schedulerOverlay" id="schedulerOverlay" aria-hidden="true"><div class="schedulerDrawer" role="dialog" aria-modal="true" aria-label="Navimow mowing schedule"><div class="schedulerHeader"><div class="schedulerHeaderTitle"><ha-icon icon="mdi:calendar-clock"></ha-icon><span>Mowing schedule</span></div><button class="schedulerClose" id="schedulerClose" type="button" aria-label="Close mowing schedule"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="schedulerBody"><div class="schedulerHost" id="schedulerHost"></div></div></div></div>
         </div>`;
+    this._applyDarkMode();
     this.querySelector('#homeBtn').addEventListener('click',()=>this._navigateHome());
     this.querySelector('#mapExpand').addEventListener('click',()=>this._toggleMapFullscreen());
     this.querySelector('#fullscreenDone').addEventListener('click',()=>this._toggleMapFullscreen(false));
@@ -812,7 +857,13 @@ class NavimowZoneDashboardCard extends HTMLElement {
   _renderSettings(){
     const root=this.querySelector('#settingsContent'); if(!root) return;
     const entities=this._configurationEntities();
-    if(!entities.length){root.innerHTML='<div class="settingsEmpty">No configuration entities were found for this mower.</div>';return;}
+    const appearanceHtml=`<section class="settingsGroup"><h3 class="settingsGroupTitle">Appearance</h3><div class="settingsList"><div class="settingRow switchRow"><span class="settingIcon"><ha-icon icon="mdi:theme-light-dark"></ha-icon></span><span><span class="settingName">Dark mode</span><span class="settingEntity">Saved on this browser</span></span><span class="toggleWrap"><span class="toggleState ${this._darkMode?'on':''}">${this._darkMode?'ON':'OFF'}</span><button class="toggleSwitch ${this._darkMode?'on':''}" type="button" data-dark-mode aria-pressed="${this._darkMode?'true':'false'}" aria-label="Toggle dark mode"><span class="toggleKnob"></span></button></span></div></div></section>`;
+    if(!entities.length){
+      root.innerHTML=appearanceHtml+'<div class="settingsEmpty">No mower configuration entities were found.</div>';
+      this._settingsBuilt=true;
+      root.querySelector('[data-dark-mode]')?.addEventListener('click',()=>this._setDarkMode(!this._darkMode));
+      return;
+    }
     const order=['Mowing','Weather & environment','Safety & navigation','Battery & power','Lighting & sound','Zone names'];
     const groups=new Map(order.map(x=>[x,[]]));
     entities.forEach(e=>{const g=this._settingGroup(e);if(!groups.has(g))groups.set(g,[]);groups.get(g).push(e);});
@@ -842,10 +893,11 @@ class NavimowZoneDashboardCard extends HTMLElement {
       const value=this._settingValue(e);
       return `<button class="settingRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="settingValue"><span>${this._escape(value)}</span><ha-icon icon="mdi:chevron-right"></ha-icon></span></button>`;
     };
-    root.innerHTML=[...groups.entries()].filter(([,items])=>items.length).map(([group,items])=>`<section class="settingsGroup"><h3 class="settingsGroupTitle">${this._escape(group)}</h3><div class="settingsList">${items.map(rowHtml).join('')}</div></section>`).join('');
+    root.innerHTML=appearanceHtml+[...groups.entries()].filter(([,items])=>items.length).map(([group,items])=>`<section class="settingsGroup"><h3 class="settingsGroupTitle">${this._escape(group)}</h3><div class="settingsList">${items.map(rowHtml).join('')}</div></section>`).join('');
     this._settingsBuilt=true;
+    root.querySelector('[data-dark-mode]')?.addEventListener('click',()=>this._setDarkMode(!this._darkMode));
     root.querySelectorAll('.settingRow:not(.switchRow):not(.numberRow)').forEach(row=>row.addEventListener('click',()=>this._showMoreInfo(row.dataset.entity)));
-    root.querySelectorAll('.toggleSwitch').forEach(btn=>btn.addEventListener('click',async e=>{
+    root.querySelectorAll('.toggleSwitch[data-switch]').forEach(btn=>btn.addEventListener('click',async e=>{
       e.stopPropagation(); const entityId=btn.dataset.switch; const current=btn.classList.contains('on'); const next=!current;
       btn.classList.toggle('on',next); btn.setAttribute('aria-pressed',next?'true':'false');
       const state=btn.closest('.toggleWrap')?.querySelector('.toggleState'); if(state){state.textContent=next?'ON':'OFF';state.classList.toggle('on',next);}
@@ -889,6 +941,13 @@ class NavimowZoneDashboardCard extends HTMLElement {
   _updateSettingsControls(){
     const root=this.querySelector('#settingsContent'); if(!root) return;
     const now=Date.now();
+    const darkBtn=root.querySelector('[data-dark-mode]');
+    if(darkBtn){
+      darkBtn.classList.toggle('on',this._darkMode);
+      darkBtn.setAttribute('aria-pressed',this._darkMode?'true':'false');
+      const darkState=darkBtn.closest('.toggleWrap')?.querySelector('.toggleState');
+      if(darkState){darkState.textContent=this._darkMode?'ON':'OFF';darkState.classList.toggle('on',this._darkMode);}
+    }
     root.querySelectorAll('.toggleSwitch[data-switch]').forEach(btn=>{
       const entityId=btn.dataset.switch; const e=this._entity(entityId); if(!e) return;
       const pending=this._pendingSettings.get(entityId);
