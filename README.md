@@ -13,7 +13,7 @@ mowing, schedules and a responsive Navimow-style dashboard into Home Assistant.
 ## Support the project
 
 <p align="center">
-  <img src="docs/images/support-navimow-ha-pro.png" alt="Support Navimow HA Pro">
+  <img src="docs/images/support-navimow-ha-pro.jpg" alt="Support Navimow HA Pro">
 </p>
 
 <p align="center">
