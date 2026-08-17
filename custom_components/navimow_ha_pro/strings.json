@@ -31,6 +31,7 @@
     "abort": {
       "single_instance_allowed": "只能添加一个 Navimow 实例",
       "already_configured": "Navimow 已配置",
+      "already_in_progress": "Navimow HA Pro setup is already open. Close the existing setup dialog, then try again. If no dialog is open, restart Home Assistant.",
       "reauth_successful": "重新认证成功",
       "missing_config": "缺少 CLIENT_ID 或 CLIENT_SECRET，请在 const.py 中配置"
     }
