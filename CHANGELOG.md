@@ -1,3 +1,9 @@
+## 0.7.5
+
+- Detach the internal Map background camera from the Navimow mower device page.
+- Migrate existing 0.7.2-0.7.4 background entities by clearing their device attachment.
+- Keep the background entity enabled, hidden and fully functional for the smooth JS dashboard card.
+
 ## 0.7.4
 
 - Automatically hide Map background entities that were already registered as visible by version 0.7.2.
