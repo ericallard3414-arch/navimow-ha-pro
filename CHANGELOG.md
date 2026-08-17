@@ -1,3 +1,10 @@
+## 0.7.0-beta.19
+
+- Restore the current mower position and direction directly in the standalone live-map camera image.
+- Restore the persisted blade-on mowing trail directly in the standalone live-map camera image.
+- Keep the custom dashboard card's smoother attribute-based mower and trail overlays unchanged.
+- Correct the integration manifest version so HACS detects and reports the update normally.
+
 ## 0.7.0-beta.17
 
 - Keep the displayed mower pinned to the charging-pile coordinates whenever its state is Docked or Charging.
