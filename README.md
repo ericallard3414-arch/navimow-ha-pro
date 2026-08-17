@@ -159,6 +159,14 @@ filled automatically:
   camera: camera.your_mower_live_mowing_map
 ```
 
+The heading uses the mower's Home Assistant friendly name automatically. To display
+a different title, add a card-level override:
+
+```yaml
+- type: custom:navimow-zone-dashboard-card
+  name: Backyard mower
+```
+
 You may still specify any individual entity option manually; explicit values always
 override automatic discovery.
 
