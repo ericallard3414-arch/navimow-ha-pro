@@ -1,3 +1,10 @@
+## 0.7.6
+
+- Auto-discover the bundled dashboard card entities for every supported Navimow model.
+- Use Home Assistant's entity registry to keep discovery working after users rename entities.
+- Support multiple mowers by allowing only `camera:` (or `entity:`) to select the mower while the remaining entities populate automatically.
+- Preserve every entity ID explicitly supplied in the card configuration.
+
 ## 0.7.5
 
 - Detach the internal Map background camera from the Navimow mower device page.
