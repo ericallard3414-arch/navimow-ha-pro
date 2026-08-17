@@ -6,9 +6,9 @@
   ],
   "config_flow": true,
   "documentation": "https://github.com/ericallard3414-arch/navimow-ha-pro",
-  "issue_tracker": "https://github.com/ericallard3414-arch/navimow-ha-pro/issues",
   "integration_type": "device",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/ericallard3414-arch/navimow-ha-pro/issues",
   "requirements": [
     "navimow-sdk>=0.1.2",
     "zstandard>=0.23.0"

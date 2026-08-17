@@ -57,7 +57,7 @@ mow:
           integration: navimow_ha_pro
     zones:
       name: Zones
-      description: Numeric partition IDs in mowing order. Example for Front + Side + Back: [4, 6, 12].
+      description: "Numeric partition IDs in mowing order. Example for Front + Side + Back: [4, 6, 12]."
       required: true
       example: [4, 6, 12]
       selector:
