@@ -1,18 +1,19 @@
 class NavimowZoneDashboardCard extends HTMLElement {
   setConfig(config) {
+    this._explicitConfig = {...config};
     this.config = {
-      camera: "camera.navimow_i215_lidar_live_mowing_map",
-      mower: "lawn_mower.navimow_i215_lidar",
-      battery: "sensor.navimow_i215_lidar_batterie",
-      status: "sensor.outdoor_navimow_i215_lidar_status",
-      progress: "sensor.navimow_i215_lidar_mowing_progress",
-      coverage: "sensor.outdoor_navimow_i215_lidar_coverage",
-      week_area: "sensor.outdoor_navimow_i215_lidar_area_this_week",
-      cutting_height: "number.outdoor_navimow_i215_lidar_global_cutting_height",
-      work_mode: "select.outdoor_navimow_i215_lidar_work_mode",
+      camera: config.camera || config.entity || null,
+      mower: null,
+      battery: null,
+      status: null,
+      progress: null,
+      coverage: null,
+      week_area: null,
+      cutting_height: null,
+      work_mode: null,
       schedule: null,
       home_path: "/the-551/The551",
-      settings_match: "navimow_i215_lidar",
+      settings_match: null,
       ...config,
     };
     this._selected = new Set();
@@ -36,8 +37,88 @@ class NavimowZoneDashboardCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._resolveEntitiesFromStates();
     if (!this._rendered) this._build();
     this._update();
+    this._resolveEntitiesFromRegistry();
+  }
+
+  _isExplicit(key) {
+    return Object.prototype.hasOwnProperty.call(this._explicitConfig || {}, key)
+      || (key === "camera" && Object.prototype.hasOwnProperty.call(this._explicitConfig || {}, "entity"));
+  }
+
+  _entitySearchText(entity) {
+    return `${entity?.entity_id || ""} ${entity?.attributes?.friendly_name || ""}`.toLowerCase();
+  }
+
+  _pickStateEntity(domain, tests, anchor) {
+    const states = Object.values(this._hass?.states || {});
+    const candidates = states.filter(entity => entity.entity_id.startsWith(`${domain}.`));
+    const anchored = anchor ? candidates.filter(entity => this._entitySearchText(entity).includes(anchor)) : candidates;
+    const pool = anchored.length ? anchored : candidates.filter(entity => /navimow/.test(this._entitySearchText(entity)));
+    return pool.find(entity => tests.every(test => test.test(this._entitySearchText(entity))))?.entity_id || null;
+  }
+
+  _resolveEntitiesFromStates() {
+    if (!this._hass?.states) return;
+    if (!this.config.camera || !this._hass.states[this.config.camera]) {
+      const cameras = Object.values(this._hass.states).filter(entity =>
+        entity.entity_id.startsWith("camera.") &&
+        (/_live_mowing_map$/.test(entity.entity_id) || (entity.attributes?.map_view && /live mowing map/i.test(entity.attributes?.friendly_name || "")))
+      );
+      if (!this._isExplicit("camera") && cameras.length) this.config.camera = cameras[0].entity_id;
+    }
+    if (!this.config.camera) return;
+    const anchor = this.config.camera.replace(/^camera\./, "").replace(/_live_mowing_map$/, "").toLowerCase();
+    const assign = (key, domain, tests) => {
+      if (!this._isExplicit(key)) this.config[key] = this._pickStateEntity(domain, tests, anchor) || this.config[key];
+    };
+    assign("mower", "lawn_mower", [/navimow/]);
+    assign("battery", "sensor", [/batter/]);
+    assign("status", "sensor", [/status/]);
+    assign("progress", "sensor", [/mowing/, /progress/]);
+    assign("coverage", "sensor", [/coverage/]);
+    assign("week_area", "sensor", [/area/, /week/]);
+    assign("cutting_height", "number", [/cutting/, /height/]);
+    assign("work_mode", "select", [/work/, /mode/]);
+    assign("schedule", "sensor", [/schedule/]);
+    if (!this._isExplicit("settings_match")) this.config.settings_match = anchor;
+  }
+
+  _registryText(entry) {
+    return `${entry?.entity_id || ""} ${entry?.original_name || ""} ${entry?.unique_id || ""}`.toLowerCase();
+  }
+
+  async _resolveEntitiesFromRegistry() {
+    if (this._registryResolveStarted || !this._hass?.callWS || !this.config.camera) return;
+    this._registryResolveStarted = true;
+    try {
+      const entries = await this._hass.callWS({type: "config/entity_registry/list"});
+      const cameraEntry = entries.find(entry => entry.entity_id === this.config.camera);
+      if (!cameraEntry?.device_id) return;
+      const related = entries.filter(entry => entry.device_id === cameraEntry.device_id);
+      this._deviceEntityIds = new Set(related.map(entry => entry.entity_id));
+      const pick = (domain, tests) => related.find(entry =>
+        entry.entity_id.startsWith(`${domain}.`) && tests.every(test => test.test(this._registryText(entry)))
+      )?.entity_id || null;
+      const assign = (key, domain, tests) => {
+        if (!this._isExplicit(key)) this.config[key] = pick(domain, tests) || this.config[key];
+      };
+      assign("mower", "lawn_mower", []);
+      assign("battery", "sensor", [/batter/]);
+      assign("status", "sensor", [/status/]);
+      assign("progress", "sensor", [/mowing/, /progress/]);
+      assign("coverage", "sensor", [/coverage/]);
+      assign("week_area", "sensor", [/area/, /week/]);
+      assign("cutting_height", "number", [/cutting/, /height/]);
+      assign("work_mode", "select", [/work/, /mode/]);
+      assign("schedule", "sensor", [/schedule/]);
+      this._settingsBuilt = false;
+      this._update();
+    } catch (error) {
+      console.debug("Navimow card entity-registry discovery unavailable; using state discovery.", error);
+    }
   }
 
   getCardSize() { return 18; }
@@ -342,7 +423,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
     const match=String(this.config.settings_match||'').toLowerCase();
     if(this._hass?.states){
       for(const [id,e] of Object.entries(this._hass.states)){
-        if(match && !id.toLowerCase().includes(match)) continue;
+        if(this._deviceEntityIds?.size ? !this._deviceEntityIds.has(id) : (match && !id.toLowerCase().includes(match))) continue;
         const st=String(e?.state||'').toLowerCase();
         const friendly=String(e?.attributes?.friendly_name||'').toLowerCase();
         const ident=id.toLowerCase();
@@ -612,12 +693,12 @@ class NavimowZoneDashboardCard extends HTMLElement {
 
 
   _configurationEntities(){
-    const match=String(this.config.settings_match||'navimow_i215_lidar').toLowerCase();
+    const match=String(this.config.settings_match||'').toLowerCase();
     const allowedDomains=new Set(['number','select','switch','text']);
     return Object.values(this._hass?.states||{}).filter(entity=>{
       const [domain]=entity.entity_id.split('.');
       if(!allowedDomains.has(domain)) return false;
-      if(!entity.entity_id.toLowerCase().includes(match)) return false;
+      if(this._deviceEntityIds?.size ? !this._deviceEntityIds.has(entity.entity_id) : (match && !entity.entity_id.toLowerCase().includes(match))) return false;
       // Prepared mowing zone is an operating control, not an EntityCategory.CONFIG entity.
       if(entity.entity_id.includes('prepared_mowing_zone')) return false;
       return true;

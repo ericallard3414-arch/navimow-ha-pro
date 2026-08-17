@@ -148,7 +148,19 @@ views:
 ```
 
 No mower entity IDs are required in the card YAML. The card discovers the entities
-created by Navimow HA Pro for the configured mower.
+created by Navimow HA Pro for the configured mower, including renamed entities.
+
+If Home Assistant contains more than one Navimow mower, specify only the live-map
+camera that belongs to the mower shown by this card. Every related entity is then
+filled automatically:
+
+```yaml
+- type: custom:navimow-zone-dashboard-card
+  camera: camera.your_mower_live_mowing_map
+```
+
+You may still specify any individual entity option manually; explicit values always
+override automatic discovery.
 
 ### Creating a dedicated Navimow dashboard
 
