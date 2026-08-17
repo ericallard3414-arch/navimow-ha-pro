@@ -5,6 +5,13 @@
 Navimow HA Pro brings mower telemetry, controls, LiDAR map data, live position, zone
 mowing, schedules and a responsive Navimow-style dashboard into Home Assistant.
 
+> [!IMPORTANT]
+> **Use a dedicated shared Navimow account for Home Assistant.** In the official Navimow
+> app, create a separate account/email used only by Home Assistant, then share the mower
+> with that account. Enter the shared account credentials during integration setup instead
+> of your primary mower-owner account. This limits exposure of your main account and makes
+> future credential changes or access removal much easier.
+
 > [!WARNING]
 > This project is unofficial and is not affiliated with, endorsed by, or supported by
 > Segway or Navimow. It uses unofficial/private cloud interfaces that can change without
