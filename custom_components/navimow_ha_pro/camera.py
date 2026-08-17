@@ -190,6 +190,9 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             "live_trail_path": live_trail_path,
             "live_trail_points": len(live_trail),
             "mower_pose": mower_pose,
+            # Signals the bundled dashboard card that these layers are already
+            # present in the camera frame, preventing duplicate mower/trail SVGs.
+            "camera_overlays_baked": True,
             # Raw Navimow type-4 location message.  The official app uses
             # this to indicate that an active/one-time mowing task is being
             # delayed (for example by rain).  Exposing it lets the Lovelace
@@ -514,7 +517,9 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             marker_y = py(float(mower[1]))
             marker_svg = (
                 f'<g transform="translate({marker_x:.1f} {marker_y:.1f}) '
-                f'rotate({marker_rotation:.1f})">'
+                # The marker artwork points upward, while calculated map
+                # headings use zero degrees to the right (east).
+                f'rotate({marker_rotation + 90.0:.1f})">'
                 '<circle r="18" fill="#1f2933" stroke="#ffffff" stroke-width="2" '
                 'stroke-opacity=".9"/>'
                 '<rect x="-8" y="-11" width="16" height="22" rx="5" '

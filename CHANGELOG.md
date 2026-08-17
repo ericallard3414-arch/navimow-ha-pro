@@ -1,3 +1,10 @@
+## 0.7.1
+
+- Show exactly one mower and one mowing trail in the bundled JS dashboard card.
+- Detect camera-baked overlays and suppress the card's duplicate SVG mower/trail layers.
+- Correct the standalone camera mower marker's 90-degree direction offset.
+- Bump the bundled frontend cache version so browsers load the corrected card immediately.
+
 ## 0.7.0-beta.19
 
 - Restore the current mower position and direction directly in the standalone live-map camera image.
