@@ -18,6 +18,75 @@ from .coordinator import NavimowCoordinator
 
 VIEW = 800
 
+# Camera state attributes are stored as one JSON object and Home Assistant
+# refuses to record objects larger than 16 KiB. Large LiDAR maps (notably the
+# X-series) can contain thousands of polygon/trail points, so expose a compact
+# overlay representation while keeping the full-resolution SVG camera image.
+MAX_ZONE_ATTRIBUTE_POINTS = 240
+MAX_TRAIL_ATTRIBUTE_POINTS = 300
+
+
+def _evenly_sample(points: list, limit: int) -> list:
+    """Return at most limit evenly distributed points, preserving both ends."""
+    if len(points) <= limit:
+        return list(points)
+    if limit <= 1:
+        return [points[-1]]
+    last = len(points) - 1
+    indexes = {round(index * last / (limit - 1)) for index in range(limit)}
+    return [points[index] for index in sorted(indexes)]
+
+
+def _compact_map_points(points: list, limit: int) -> list[list[float]]:
+    """Compact map geometry and round coordinates for small state attributes."""
+    compact = _evenly_sample(points, max(3, limit))
+    result = []
+    for point in compact:
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            continue
+        try:
+            result.append([round(float(point[0]), 3), round(float(point[1]), 3)])
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _compact_trail(points: list, limit: int) -> list:
+    """Compact a trail while retaining endpoints and zone/gap boundaries."""
+    if len(points) <= limit:
+        return list(points)
+
+    mandatory = {0, len(points) - 1}
+    previous = None
+    previous_zone = None
+    for index, point in enumerate(points):
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            continue
+        zone = point[2] if len(point) >= 3 else None
+        if previous is not None:
+            try:
+                gap = math.hypot(
+                    float(point[0]) - float(previous[0]),
+                    float(point[1]) - float(previous[1]),
+                ) > 2.5
+            except (TypeError, ValueError, IndexError):
+                gap = True
+            if zone != previous_zone or gap:
+                mandatory.update((max(0, index - 1), index))
+        previous = point
+        previous_zone = zone
+
+    if len(mandatory) >= limit:
+        chosen = _evenly_sample(sorted(mandatory), limit)
+    else:
+        chosen = set(mandatory)
+        remaining = limit - len(chosen)
+        chosen.update(
+            round(index * (len(points) - 1) / max(remaining - 1, 1))
+            for index in range(remaining)
+        )
+    return [points[index] for index in sorted(chosen)]
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -124,10 +193,19 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        """Expose exact map geometry for the interactive Lovelace zone card."""
+        """Expose compact map geometry for the interactive Lovelace zone card."""
+        # The background entity only supplies an SVG image. Duplicating the live
+        # geometry/trail attributes here caused two >16 KiB Recorder warnings.
+        if not self._include_dynamic_overlays:
+            return {"camera_overlays_baked": False}
+
         geometry = self.coordinator.get_map_geometry() or {}
+        raw_zones = geometry.get("zones") or []
+        zone_point_limit = max(
+            8, MAX_ZONE_ATTRIBUTE_POINTS // max(len(raw_zones), 1)
+        )
         zones = []
-        for zone in geometry.get("zones") or []:
+        for zone in raw_zones:
             points = zone.get("points") or []
             if len(points) < 3:
                 continue
@@ -136,7 +214,7 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 "name": self.coordinator.get_zone_label(zone.get("id"))
                 or zone.get("name")
                 or f"Zone {zone.get('id')}",
-                "points": points,
+                "points": _compact_map_points(points, zone_point_limit),
             })
 
         terrain = self.coordinator.get_terrain_map()
@@ -152,8 +230,15 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 "width": meta.get("width"),
                 "height": meta.get("height"),
             }
-        elif zones:
-            all_points = [point for zone in zones for point in zone["points"]]
+        elif raw_zones:
+            # Calculate bounds from the original geometry so compaction cannot
+            # change the camera/card projection.
+            all_points = [
+                point
+                for zone in raw_zones
+                for point in (zone.get("points") or [])
+                if isinstance(point, (list, tuple)) and len(point) >= 2
+            ]
             xs = [float(point[0]) for point in all_points]
             ys = [float(point[1]) for point in all_points]
             min_x, max_x = math.floor(min(xs) - 2), math.ceil(max(xs) + 2)
@@ -196,7 +281,9 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 commands = []
                 previous = None
                 previous_zone = None
-                for point in live_trail[-8000:]:
+                for point in _compact_trail(
+                    live_trail[-8000:], MAX_TRAIL_ATTRIBUTE_POINTS
+                ):
                     if not isinstance(point, (list, tuple)) or len(point) < 2:
                         continue
                     try:
