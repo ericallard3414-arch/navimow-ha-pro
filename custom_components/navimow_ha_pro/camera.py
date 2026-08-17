@@ -232,7 +232,10 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 live_trail_path = ""
                 mower_pose = None
 
+        device = self.coordinator.device
         return {
+            "mower_name": device.name,
+            "mower_model": device.model or "Unknown",
             "selectable_zones": zones,
             "map_view": view,
             "live_trail_path": live_trail_path,
