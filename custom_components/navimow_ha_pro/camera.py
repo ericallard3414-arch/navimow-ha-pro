@@ -25,7 +25,19 @@ async def async_setup_entry(
 ) -> None:
     data = hass.data[DOMAIN][config_entry.entry_id]
     coordinators: dict[str, NavimowCoordinator] = data["coordinators"]
-    async_add_entities(NavimowTrailCamera(c) for c in coordinators.values())
+    entities = []
+    for coordinator in coordinators.values():
+        background = NavimowTrailCamera(
+            coordinator,
+            include_dynamic_overlays=False,
+        )
+        live = NavimowTrailCamera(
+            coordinator,
+            include_dynamic_overlays=True,
+            background_camera=background,
+        )
+        entities.extend((live, background))
+    async_add_entities(entities)
 
 
 class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
@@ -33,12 +45,24 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: NavimowCoordinator) -> None:
+    def __init__(
+        self,
+        coordinator: NavimowCoordinator,
+        *,
+        include_dynamic_overlays: bool = True,
+        background_camera: "NavimowTrailCamera | None" = None,
+    ) -> None:
         Camera.__init__(self)
         CoordinatorEntity.__init__(self, coordinator)
         device = coordinator.device
-        self._attr_name = "Live mowing map"
-        self._attr_unique_id = f"{DOMAIN}_{device.id}_live_map"
+        self._include_dynamic_overlays = include_dynamic_overlays
+        self._background_camera = background_camera
+        if include_dynamic_overlays:
+            self._attr_name = "Live mowing map"
+            self._attr_unique_id = f"{DOMAIN}_{device.id}_live_map"
+        else:
+            self._attr_name = "Map background"
+            self._attr_unique_id = f"{DOMAIN}_{device.id}_map_background"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device.id)},
             name=device.name,
@@ -192,7 +216,12 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             "mower_pose": mower_pose,
             # Signals the bundled dashboard card that these layers are already
             # present in the camera frame, preventing duplicate mower/trail SVGs.
-            "camera_overlays_baked": True,
+            "camera_overlays_baked": self._include_dynamic_overlays,
+            "background_camera_entity_id": (
+                self._background_camera.entity_id
+                if self._background_camera is not None
+                else None
+            ),
             # Raw Navimow type-4 location message.  The official app uses
             # this to indicate that an active/one-time mowing task is being
             # delayed (for example by rain).  Exposing it lets the Lovelace
@@ -508,11 +537,11 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         trail_svg = (
             f'<path d="{trail_path}" fill="none" stroke="#ffffff" stroke-width="8" '
             'stroke-linecap="round" stroke-linejoin="round" opacity=".72"/>'
-            if trail_path
+            if self._include_dynamic_overlays and trail_path
             else ""
         )
         marker_svg = ""
-        if mower is not None:
+        if self._include_dynamic_overlays and mower is not None:
             marker_x = px(float(mower[0]))
             marker_y = py(float(mower[1]))
             marker_svg = (

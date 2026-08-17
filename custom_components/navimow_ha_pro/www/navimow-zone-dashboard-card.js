@@ -386,7 +386,9 @@ class NavimowZoneDashboardCard extends HTMLElement {
 
   _refreshImage(){
     const cam=this._entity(this.config.camera); if(!cam) return;
-    let src=cam.attributes.entity_picture;
+    const backgroundId=cam.attributes.background_camera_entity_id;
+    const imageCam=(backgroundId && this._entity(backgroundId)) || cam;
+    let src=imageCam.attributes.entity_picture;
     if(!src) return;
     src += (src.includes('?')?'&':'?') + `_navimow=${Date.now()}`;
     const img=this.querySelector('#mapImage');
@@ -462,7 +464,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
     // beta.19+ standalone camera frames already contain their own mower and
     // trail. Suppress this card's dynamic copies so exactly one of each is
     // visible. Older camera entities keep the original attribute overlays.
-    if(cam?.attributes?.camera_overlays_baked===true){
+    if(cam?.attributes?.camera_overlays_baked===true && !cam?.attributes?.background_camera_entity_id){
       els.trail.setAttribute('d',''); els.trail.style.display='none';
       els.mower.style.display='none';
       this._lastLiveImage=Date.now();
