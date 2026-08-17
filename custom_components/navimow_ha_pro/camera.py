@@ -9,6 +9,7 @@ from homeassistant.components.camera import Camera
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -75,6 +76,19 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             serial_number=device.serial_number or device.id,
         )
         self.content_type = "image/svg+xml"
+
+    async def async_added_to_hass(self) -> None:
+        """Hide an already-registered internal background camera."""
+        await super().async_added_to_hass()
+        if self._include_dynamic_overlays or not self.entity_id:
+            return
+        registry = er.async_get(self.hass)
+        entry = registry.async_get(self.entity_id)
+        if entry is not None and entry.hidden_by is None:
+            registry.async_update_entity(
+                self.entity_id,
+                hidden_by=er.RegistryEntryHider.INTEGRATION,
+            )
 
     def _display_location(self, geometry: dict) -> dict:
         """Return the live pose, pinned to the charging pile while docked.
