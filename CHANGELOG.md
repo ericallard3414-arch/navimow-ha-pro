@@ -1,3 +1,9 @@
+## 0.7.4
+
+- Automatically hide Map background entities that were already registered as visible by version 0.7.2.
+- Keep the internal background camera enabled and accessible to the smooth JS dashboard card.
+- Preserve the hidden-by-default behavior for new installations.
+
 ## 0.7.3
 
 - Hide the internal Map background camera from normal Home Assistant device views by default.
