@@ -1,4 +1,4 @@
-## 0.7.0-beta.20
+## 0.7.1
 
 - Show exactly one mower and one mowing trail in the bundled JS dashboard card.
 - Detect camera-baked overlays and suppress the card's duplicate SVG mower/trail layers.
