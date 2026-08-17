@@ -498,12 +498,35 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         # below is built only from mower-state==mowing samples and is persisted
         # across pause/return/dock for resume.
         official_trail_svg = ""
-        # The dashboard card renders the live trail and mower as a native SVG
-        # overlay using entity attributes.  Do not bake them into the camera
-        # image: browser image caching caused missing trails on Chromium, and
-        # image-frame updates made the mower movement visibly jumpy.
-        trail_svg = ""
+        # Keep the standalone camera entity complete as well as exposing the
+        # smoother attribute-based overlays used by the dashboard card. Camera
+        # consumers that do not use the custom card still need the live
+        # blade-on trail and current mower pose baked into each SVG frame.
+        trail_svg = (
+            f'<path d="{trail_path}" fill="none" stroke="#ffffff" stroke-width="8" '
+            'stroke-linecap="round" stroke-linejoin="round" opacity=".72"/>'
+            if trail_path
+            else ""
+        )
         marker_svg = ""
+        if mower is not None:
+            marker_x = px(float(mower[0]))
+            marker_y = py(float(mower[1]))
+            marker_svg = (
+                f'<g transform="translate({marker_x:.1f} {marker_y:.1f}) '
+                f'rotate({marker_rotation:.1f})">'
+                '<circle r="18" fill="#1f2933" stroke="#ffffff" stroke-width="2" '
+                'stroke-opacity=".9"/>'
+                '<rect x="-8" y="-11" width="16" height="22" rx="5" '
+                'fill="#f4f7f9" stroke="#263746" stroke-width="2"/>'
+                '<rect x="-5" y="-7" width="10" height="7" rx="2" fill="#ff7a1a"/>'
+                '<circle cx="-10" cy="-7" r="2.5" fill="#151d24"/>'
+                '<circle cx="-10" cy="7" r="2.5" fill="#151d24"/>'
+                '<circle cx="10" cy="-7" r="2.5" fill="#151d24"/>'
+                '<circle cx="10" cy="7" r="2.5" fill="#151d24"/>'
+                '<path d="M 0 -16 L -4 -10 L 4 -10 Z" fill="#ffffff"/>'
+                '</g>'
+            )
         return "".join((
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
             f'viewBox="0 0 {width} {height}">',
