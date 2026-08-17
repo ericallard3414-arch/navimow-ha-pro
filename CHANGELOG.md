@@ -1,3 +1,9 @@
+## 0.7.9
+
+- Prepare the repository for submission to the official HACS default catalog.
+- Confirm HACS validation and Home Assistant Hassfest pass without ignored checks.
+- Preserve all dashboard, automatic entity discovery, dark mode, map and mower-name improvements from 0.7.8.
+
 ## 0.7.8
 
 - Replace the hard-coded i215 dashboard heading with the mower's Home Assistant name.
