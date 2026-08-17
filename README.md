@@ -10,6 +10,29 @@ mowing, schedules and a responsive Navimow-style dashboard into Home Assistant.
 > Segway or Navimow. It uses unofficial/private cloud interfaces that can change without
 > notice. Use the beta at your own risk and keep the official Navimow app available.
 
+## Support the project
+
+<p align="center">
+  <img src="docs/images/support-navimow-ha-pro.png" alt="Support Navimow HA Pro">
+</p>
+
+<p align="center">
+  <a href="https://paypal.me/EricAllard101"><img src="https://img.shields.io/badge/PayPal-Support-0070ba?style=for-the-badge&logo=paypal&logoColor=white" alt="Support with PayPal"></a>
+  <a href="https://blockstream.info/address/bc1qtrd4u4vvcvpgt4fnaz3emkydsn3y3y7w8mejz5"><img src="https://img.shields.io/badge/Bitcoin-BTC-f7931a?style=for-the-badge&logo=bitcoin&logoColor=white" alt="Support with Bitcoin"></a>
+  <a href="https://etherscan.io/address/0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd"><img src="https://img.shields.io/badge/Ethereum-ETH-627eea?style=for-the-badge&logo=ethereum&logoColor=white" alt="Support with Ethereum"></a>
+  <a href="https://bscscan.com/address/0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd"><img src="https://img.shields.io/badge/BNB-BEP--20-f3ba2f?style=for-the-badge&logo=binance&logoColor=black" alt="Support with BNB"></a>
+</p>
+
+If you enjoy Navimow HA Pro and would like to support the work behind it, donations are
+appreciated but never required. Click a payment logo above or use the copyable addresses:
+
+- **Bitcoin (BTC):** [`bc1qtrd4u4vvcvpgt4fnaz3emkydsn3y3y7w8mejz5`](https://blockstream.info/address/bc1qtrd4u4vvcvpgt4fnaz3emkydsn3y3y7w8mejz5)
+- **Ethereum (Ethereum network):** [`0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd`](https://etherscan.io/address/0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd)
+- **BNB (BNB Smart Chain / BEP-20):** [`0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd`](https://bscscan.com/address/0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd)
+
+Please verify the address and selected network before sending cryptocurrency. Donations
+are voluntary and do not purchase support, warranties or additional features.
+
 ### Resume or start fresh
 
 When a selected mowing zone already has partial work recorded, the dashboard offers **Resume work** or **Start fresh**. Resume preserves the server-side coverage and continues the remaining uncut area. Start fresh clears the previous session trail/progress and begins a new mowing session. If the mower is manually returned to the charging base before the job is complete, the unfinished last-commanded zone selection is restored so the same Resume / Start fresh choice is available.
@@ -235,21 +258,6 @@ The integration includes Home Assistant services for advanced operations, includ
 - `navimow_ha_pro.set_zone_name` — assign friendly names to Navimow partition IDs
 
 The dashboard normally calls these for you.
-
-## Support the project
-
-![Support Navimow HA Pro](docs/images/support-navimow-ha-pro.png)
-
-If you enjoy Navimow HA Pro and would like to support the work behind it, donations are
-appreciated but never required.
-
-- **PayPal:** [paypal.me/EricAllard101](https://paypal.me/EricAllard101)
-- **Bitcoin (BTC):** [`bc1qtrd4u4vvcvpgt4fnaz3emkydsn3y3y7w8mejz5`](https://blockstream.info/address/bc1qtrd4u4vvcvpgt4fnaz3emkydsn3y3y7w8mejz5)
-- **Ethereum (Ethereum network):** [`0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd`](https://etherscan.io/address/0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd)
-- **BNB (BNB Smart Chain / BEP-20):** [`0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd`](https://bscscan.com/address/0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd)
-
-Please verify the address and selected network before sending cryptocurrency. Donations
-are voluntary and do not purchase support, warranties or additional features.
 
 ## Privacy and diagnostics
 
