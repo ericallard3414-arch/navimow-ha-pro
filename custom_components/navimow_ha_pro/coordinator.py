@@ -72,7 +72,25 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_http_fetch: float | None = None
         self._last_data_source: str | None = None
         self._location: dict[str, Any] | None = None
-        self._trail: list[list[float]] = []
+        self._trail: list[list[float]] = []  # [x, y, partition_id] in schema v3
+        # Exact swept paths downloaded from Navimow's official trail API.
+        # Kept separately from the high-frequency live trail so the camera can
+        # render server-authoritative geometry without sacrificing a live pose.
+        self._official_trail_groups: list[dict[str, Any]] = []
+        self._official_trail_signature: dict[int, tuple[int | None, int | None, float | None]] = {}
+        self._last_official_trail_fetch: float = 0.0
+        # Fresh-session guard for official server trail. After a reset mowing
+        # command, old server path data can remain available briefly. Hide it
+        # until path-info-time reports a new startTime for the commanded zone.
+        self._official_session_waiting: bool = False
+        self._official_session_zone_ids: set[int] = set()
+        self._official_session_baseline_start: dict[int, int | None] = {}
+        # Persist the last authoritative per-zone completion percentage.
+        # Navimow can temporarily report 0/empty progress after docking even
+        # though the unfinished job remains resumable.  Keeping the last
+        # server value makes the dashboard resume logic stable across idle/
+        # charging transitions and Home Assistant restarts.
+        self._zone_progress_cache: dict[int, float] = {}
         # Zones from the most recent dashboard mowing request.  This lets the
         # live map distinguish blade-on lawn coverage from simple transit.
         self._commanded_zone_ids: list[int] = []
@@ -82,6 +100,10 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._recent_pose_samples: list[tuple[float, float, float]] = []
         self._trail_gate_active: bool = False
         self._trail_gate_boundary: int | None = None
+        # Trail format v2: only blade-on live mowing samples are rendered.
+        # Older releases persisted generic movement/travel points, so those
+        # legacy caches must be discarded once after upgrading.
+        self._trail_schema_version: int = 3
         self._mqtt_topics: dict[str, Any] = {}
         self._command_discovery_events: list[dict[str, Any]] = []
         self._location_messages_by_type: dict[str, Any] = {}
@@ -131,15 +153,38 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Register callbacks from SDK."""
         saved = await self._store.async_load()
         if isinstance(saved, dict):
+            # Load saved polygons before migrating schema-v2 trail points so
+            # each existing mowing point can be assigned to its lawn.
+            self._map_geometry = self._validate_map_geometry(saved.get("map_geometry"))
+            saved_trail_schema = self._integer(saved.get("trail_schema_version")) or 1
             raw_trail = saved.get("trail")
-            if isinstance(raw_trail, list):
-                self._trail = [
-                    [float(p[0]), float(p[1])]
-                    for p in raw_trail[-10000:]
-                    if isinstance(p, list)
-                    and len(p) == 2
-                    and all(isinstance(v, (int, float)) for v in p)
-                ]
+            if saved_trail_schema >= 2 and isinstance(raw_trail, list):
+                # Schema v2 already contained blade-on mowing points, but did
+                # not tag them with their partition.  Schema v3 stores the
+                # partition with every point so starting a different lawn can
+                # never erase another lawn's completed/partial work.
+                migrated: list[list[float]] = []
+                for item in raw_trail[-12000:]:
+                    if not isinstance(item, (list, tuple)) or len(item) < 2:
+                        continue
+                    x = self._finite(item[0])
+                    y = self._finite(item[1])
+                    if x is None or y is None:
+                        continue
+                    zone_id = self._integer(item[2]) if len(item) >= 3 else None
+                    if zone_id is None:
+                        zone_id = self._zone_id_for_point(float(x), float(y))
+                    if zone_id is not None:
+                        migrated.append([round(float(x), 3), round(float(y), 3), int(zone_id)])
+                self._trail = migrated[-12000:]
+            elif saved_trail_schema < 2:
+                # Schema v1 could include transit movement. Never import it as
+                # cut coverage.
+                self._trail = []
+                self._official_trail_groups = []
+            raw_official = saved.get("official_trail_groups")
+            if saved_trail_schema >= 2 and isinstance(raw_official, list):
+                self._official_trail_groups = self._validate_official_trail_groups(raw_official)
             raw_zones = saved.get("zones")
             if isinstance(raw_zones, dict):
                 for raw_id, raw_name in raw_zones.items():
@@ -153,6 +198,20 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if selected_zone_id is not None:
                 self._selected_zone_id = selected_zone_id
                 self._discovered_zone_ids.add(selected_zone_id)
+            raw_commanded = saved.get("commanded_zone_ids")
+            if isinstance(raw_commanded, list):
+                self._commanded_zone_ids = [
+                    zone_id
+                    for item in raw_commanded
+                    if (zone_id := self._integer(item)) is not None
+                ]
+            raw_progress = saved.get("zone_progress_cache")
+            if isinstance(raw_progress, dict):
+                for raw_id, raw_pct in raw_progress.items():
+                    zone_id = self._integer(raw_id)
+                    pct = self._finite(raw_pct)
+                    if zone_id is not None and pct is not None:
+                        self._zone_progress_cache[zone_id] = max(0.0, min(100.0, float(pct)))
             self._map_geometry = self._validate_map_geometry(
                 saved.get("map_geometry")
             )
@@ -174,7 +233,9 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "state": self._last_state,
             "attributes": self._last_attributes,
             "location": self._location,
+            "trail_schema_version": self._trail_schema_version,
             "trail": self._trail,
+            "official_trail_groups": self._official_trail_groups,
             "map_geometry": self._map_geometry,
             "private_telemetry": self._private_telemetry,
             "zones": {
@@ -322,6 +383,37 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     return found
         return None
 
+    def _coverage_start_times(self, coverage: Any) -> dict[int, int | None]:
+        """Return partition -> server session startTime from path-info-time."""
+        result: dict[int, int | None] = {}
+        if not isinstance(coverage, list):
+            return result
+        for item in coverage:
+            if not isinstance(item, dict):
+                continue
+            zone_id = self._integer(item.get("partitionId"))
+            if zone_id is None:
+                continue
+            result[zone_id] = self._integer(item.get("startTime"))
+        return result
+
+    def _official_session_accepts(self, coverage: Any) -> bool:
+        """Release official trail only after the server exposes the new job."""
+        if not self._official_session_waiting:
+            return True
+        starts = self._coverage_start_times(coverage)
+        for zone_id in self._official_session_zone_ids:
+            current = starts.get(zone_id)
+            baseline = self._official_session_baseline_start.get(zone_id)
+            if current is not None and (baseline is None or current > baseline):
+                self._official_session_waiting = False
+                _LOGGER.info(
+                    "Official trail fresh session detected: zone=%s start=%s baseline=%s",
+                    zone_id, current, baseline,
+                )
+                return True
+        return False
+
     async def _async_refresh_private_telemetry(self, force_slow: bool = False) -> None:
         """Fetch and normalize private read-only mower telemetry."""
         client = self._private_client
@@ -355,6 +447,42 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raw["coverage"] = client.path_info_time(serial)
             except NavimowError:
                 raw.setdefault("coverage", [])
+
+            # Official Android app flow: coverage/time metadata first, then
+            # fetch Zstd path geometry for the partitions that need it.  On
+            # startup/slow refresh fetch every known partition once; while a
+            # zone is in progress, refresh only that incomplete partition.
+            coverage_items = raw.get("coverage") if isinstance(raw.get("coverage"), list) else []
+            known_ids: list[int] = []
+            incomplete_ids: list[int] = []
+            for item in coverage_items:
+                if not isinstance(item, dict):
+                    continue
+                zone_id = self._integer(item.get("partitionId"))
+                if zone_id is None:
+                    continue
+                if zone_id not in known_ids:
+                    known_ids.append(zone_id)
+                try:
+                    percentage = float(item.get("partitionPercentage"))
+                except (TypeError, ValueError):
+                    percentage = 100.0
+                if percentage < 100.0 and zone_id not in incomplete_ids:
+                    incomplete_ids.append(zone_id)
+
+            session_ready = self._official_session_accepts(coverage_items)
+            if self._official_session_waiting and not session_ready:
+                fetch_ids = []
+            elif self._official_session_zone_ids:
+                fetch_ids = [z for z in known_ids if z in self._official_session_zone_ids]
+            else:
+                fetch_ids = known_ids if (slow or not self._official_trail_groups) else incomplete_ids
+            if fetch_ids:
+                try:
+                    raw["official_path_data"] = client.path_info_data(serial, fetch_ids)
+                    raw["official_path_ids"] = fetch_ids
+                except (NavimowError, OSError, ValueError):
+                    pass
             if slow:
                 getters = {
                     "set_list": lambda: client.set_list(serial),
@@ -375,7 +503,22 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("Private telemetry refresh failed for %s: %s", serial, err)
             return
         if slow:
-            self._private_slow_raw = raw
+            # Do not retain the potentially large path blob in the slow-cache.
+            self._private_slow_raw = {
+                key: value for key, value in raw.items()
+                if key not in {"official_path_data", "official_path_ids"}
+            }
+        progress_changed = self._update_zone_progress_cache(raw.get("coverage"))
+        trail_changed = False
+        if "official_path_data" in raw:
+            trail_changed = self._merge_official_trail_payload(
+                raw.get("official_path_data"),
+                raw.get("official_path_ids") or [],
+            )
+            if trail_changed:
+                self._last_official_trail_fetch = time.time()
+        if progress_changed or trail_changed:
+            await self._async_save_store()
         self._private_telemetry = self._normalize_private_telemetry(raw)
         private_location = raw.get("location")
         if isinstance(private_location, (dict, list)):
@@ -528,6 +671,217 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "device_info": self._sanitize_mqtt(raw.get("device_info") or {}),
             "auth_battery": self._integer(self._private_find(auth, "soc", "battery")),
         }
+
+    @staticmethod
+    def _official_point(value: Any) -> list[float] | None:
+        """Normalize one official trail point without guessing unrelated arrays."""
+        try:
+            if isinstance(value, (list, tuple)) and len(value) >= 2:
+                x = float(value[0])
+                y = float(value[1])
+                if math.isfinite(x) and math.isfinite(y) and abs(x) < 10000 and abs(y) < 10000:
+                    return [round(x, 4), round(y, 4)]
+            if isinstance(value, dict):
+                pairs = (
+                    ("x", "y"),
+                    ("postureX", "postureY"),
+                    ("pointX", "pointY"),
+                    ("longitudeX", "latitudeY"),
+                )
+                for x_key, y_key in pairs:
+                    if x_key in value and y_key in value:
+                        x = float(value[x_key])
+                        y = float(value[y_key])
+                        if math.isfinite(x) and math.isfinite(y) and abs(x) < 10000 and abs(y) < 10000:
+                            return [round(x, 4), round(y, 4)]
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return None
+
+    @classmethod
+    def _extract_official_point_sets(cls, value: Any, *, hinted: bool = False) -> list[list[list[float]]]:
+        """Find coordinate sequences inside one decompressed official path record."""
+        groups: list[list[list[float]]] = []
+        if isinstance(value, list):
+            direct = [cls._official_point(item) for item in value]
+            if hinted and len(value) >= 2 and all(point is not None for point in direct):
+                clean: list[list[float]] = []
+                for point in direct:
+                    assert point is not None
+                    if not clean or point != clean[-1]:
+                        clean.append(point)
+                if len(clean) >= 2:
+                    return [clean]
+            for item in value:
+                groups.extend(cls._extract_official_point_sets(item, hinted=hinted))
+            return groups
+        if not isinstance(value, dict):
+            return groups
+        for key, child in value.items():
+            lower = str(key).replace("_", "").lower()
+            child_hinted = hinted or any(token in lower for token in ("path", "point", "track", "trail", "coord"))
+            groups.extend(cls._extract_official_point_sets(child, hinted=child_hinted))
+        return groups
+
+    @classmethod
+    def _parse_official_trail_payload(cls, payload: Any, requested_ids: list[int]) -> list[dict[str, Any]]:
+        """Normalize the app's decompressed trail JSON into partitioned groups."""
+        records: list[Any]
+        if isinstance(payload, list):
+            records = payload
+        elif isinstance(payload, dict):
+            candidate = None
+            for key in ("data", "list", "paths", "pathList", "workPathList", "records"):
+                if isinstance(payload.get(key), list):
+                    candidate = payload.get(key)
+                    break
+            records = candidate if isinstance(candidate, list) else [payload]
+        else:
+            return []
+
+        output: list[dict[str, Any]] = []
+        fallback_ids = [int(value) for value in requested_ids]
+        for index, record in enumerate(records):
+            zone_id = None
+            if isinstance(record, dict):
+                for key in ("partitionId", "partition_id", "partition", "zoneId", "zone_id", "id"):
+                    try:
+                        if key in record:
+                            zone_id = int(record[key])
+                            break
+                    except (TypeError, ValueError):
+                        pass
+            if zone_id is None and len(records) == len(fallback_ids) and index < len(fallback_ids):
+                zone_id = fallback_ids[index]
+            point_sets = cls._extract_official_point_sets(record, hinted=False)
+            for points in point_sets:
+                if len(points) >= 2:
+                    output.append({"partition_id": zone_id, "points": points})
+        return cls._validate_official_trail_groups(output)
+
+    @classmethod
+    def _validate_official_trail_groups(cls, value: Any) -> list[dict[str, Any]]:
+        output: list[dict[str, Any]] = []
+        if not isinstance(value, list):
+            return output
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            try:
+                zone_id = int(item.get("partition_id")) if item.get("partition_id") is not None else None
+            except (TypeError, ValueError):
+                zone_id = None
+            points: list[list[float]] = []
+            for raw_point in item.get("points") or []:
+                point = cls._official_point(raw_point)
+                if point is not None and (not points or point != points[-1]):
+                    points.append(point)
+            if len(points) >= 2:
+                output.append({"partition_id": zone_id, "points": points[-20000:]})
+        return output
+
+    def _merge_official_trail_payload(self, payload: Any, requested_ids: list[int]) -> bool:
+        parsed = self._parse_official_trail_payload(payload, requested_ids)
+        if not parsed:
+            _LOGGER.debug("Official Navimow trail payload decoded but no point groups were recognized")
+            return False
+
+        requested = {int(value) for value in requested_ids}
+        retained = [
+            group for group in self._official_trail_groups
+            if group.get("partition_id") not in requested
+        ]
+        merged = self._validate_official_trail_groups(retained + parsed)
+        if merged == self._official_trail_groups:
+            return False
+        self._official_trail_groups = merged
+        _LOGGER.info(
+            "Official Navimow trail updated: partitions=%s groups=%s points=%s",
+            sorted({group.get("partition_id") for group in merged if group.get("partition_id") is not None}),
+            len(merged),
+            sum(len(group.get("points") or []) for group in merged),
+        )
+        return True
+
+    def _update_zone_progress_cache(self, coverage: Any) -> bool:
+        """Remember authoritative non-stale per-zone mowing progress."""
+        if not isinstance(coverage, list):
+            return False
+        changed = False
+        starts = self._coverage_start_times(coverage)
+        for item in coverage:
+            if not isinstance(item, dict):
+                continue
+            zone_id = self._integer(item.get("partitionId"))
+            pct = self._finite(item.get("partitionPercentage"))
+            if zone_id is None or pct is None:
+                continue
+            value = max(0.0, min(100.0, float(pct)))
+
+            # During START FRESH the cloud may replay the previous session for
+            # several polls.  Do not let that historical percentage repopulate
+            # the resume UI until a genuinely newer startTime appears.
+            if self._official_session_waiting and zone_id in self._official_session_zone_ids:
+                baseline = self._official_session_baseline_start.get(zone_id)
+                current = starts.get(zone_id)
+                if baseline is not None and (current is None or current <= baseline):
+                    continue
+
+            # A transient 0 while the mower is docked/idle is not evidence that
+            # an unfinished cloud job was erased.  Explicit START FRESH clears
+            # the cache itself below, so passive zeroes are ignored when a
+            # positive resumable value is already known.
+            previous = self._zone_progress_cache.get(zone_id)
+            if value == 0.0 and previous is not None and 0.0 < previous < 100.0:
+                continue
+            if previous != value:
+                self._zone_progress_cache[zone_id] = value
+                changed = True
+        return changed
+
+    def get_zone_progress_map(self) -> dict[int, float]:
+        """Return stable authoritative server mowing progress by partition."""
+        output: dict[int, float] = dict(self._zone_progress_cache)
+        coverage = None
+        if isinstance(self._private_telemetry, dict):
+            coverage = self._private_telemetry.get("coverage")
+        if coverage is None and isinstance(self._private_slow_raw, dict):
+            coverage = self._private_slow_raw.get("coverage")
+        if isinstance(coverage, list):
+            starts = self._coverage_start_times(coverage)
+            for item in coverage:
+                if not isinstance(item, dict):
+                    continue
+                zone_id = self._integer(item.get("partitionId"))
+                pct = self._finite(item.get("partitionPercentage"))
+                if zone_id is None or pct is None:
+                    continue
+                if self._official_session_waiting and zone_id in self._official_session_zone_ids:
+                    baseline = self._official_session_baseline_start.get(zone_id)
+                    current = starts.get(zone_id)
+                    if baseline is not None and (current is None or current <= baseline):
+                        continue
+                value = max(0.0, min(100.0, float(pct)))
+                cached = output.get(zone_id)
+                if value == 0.0 and cached is not None and 0.0 < cached < 100.0:
+                    continue
+                output[zone_id] = value
+        return output
+
+    def get_resumable_zone_ids(self) -> list[int]:
+        """Return last-commanded zones that still have unfinished work."""
+        progress = self.get_zone_progress_map()
+        return [
+            int(zone_id)
+            for zone_id in self._commanded_zone_ids
+            if 0.0 < progress.get(int(zone_id), 0.0) < 100.0
+        ]
+
+    def get_official_trail_groups(self) -> list[dict[str, Any]]:
+        return [
+            {"partition_id": group.get("partition_id"), "points": [list(point) for point in group.get("points") or []]}
+            for group in self._official_trail_groups
+        ]
 
     def _parse_private_schedule(self, set_list: Any) -> list[dict[str, Any]]:
         """Normalize workPlanV2 into UI-friendly weekday entries."""
@@ -795,6 +1149,15 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_data_source = "mqtt_push"
         self.async_set_updated_data(self._build_data())
 
+        # A pause/return/dock/charge transition is a persistence boundary.
+        # Save the blade-on trail immediately instead of waiting for another
+        # location sample or the periodic throttle.  This is especially
+        # important when the mower reaches the charger and stops publishing
+        # mowing positions for hours.
+        if new_state in {"paused", "ispaused", "returning", "returninghome", "docked", "charging", "ischarging", "idle", "isidle"}:
+            self._last_saved = time.monotonic()
+            self.hass.async_create_task(self._async_save_store())
+
     def _update_from_attributes(self, attrs: DeviceAttributesMessage) -> None:
         self._last_attributes = attrs
         self.async_set_updated_data(self._build_data())
@@ -856,11 +1219,10 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         next_progress = round(
                             min(max(raw_progress / 100.0, 0.0), 100.0), 1
                         )
-                        if next_progress == 0 and previous_progress not in (
-                            None,
-                            0,
-                        ):
-                            self._trail = []
+                        # Do not clear the visible trail just because a
+                        # docked/idle telemetry frame reports progress=0.
+                        # Only an explicit START FRESH command is allowed to
+                        # erase the current-session trail.
                         merged["currentMowProgress"] = raw_progress
                         merged["mowingPercentage"] = round(
                             min(max(raw_progress / 100.0, 0.0), 100.0), 1
@@ -959,14 +1321,14 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             last = self._trail[-1] if self._trail else None
                             if last is None or math.hypot(bx - last[0], by - last[1]) >= 0.05:
                                 if last is None or math.hypot(bx - last[0], by - last[1]) <= 50:
-                                    self._trail.append([round(bx, 3), round(by, 3)])
+                                    self._trail.append([round(bx, 3), round(by, 3), int(boundary_now)])
                                     changed = True
                 last = self._trail[-1] if self._trail else None
                 if last is None or math.hypot(x - last[0], y - last[1]) >= 0.05:
                     if last is None or math.hypot(x - last[0], y - last[1]) <= 50:
-                        self._trail.append([round(x, 3), round(y, 3)])
+                        self._trail.append([round(x, 3), round(y, 3), int(boundary_now)])
                         changed = True
-                self._trail = self._trail[-10000:]
+                self._trail = self._trail[-12000:]
                 self._trail_gate_active = True
                 self._trail_gate_boundary = boundary_now
             else:
@@ -1073,6 +1435,25 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return zone
         return None
 
+    def _zone_id_for_point(self, x: float, y: float) -> int | None:
+        """Best-effort partition lookup for a stored mowing point."""
+        geometry = self._map_geometry or {}
+        # Exact polygon membership first.
+        for zone in geometry.get("zones") or []:
+            zone_id = self._integer(zone.get("id"))
+            if zone_id is None:
+                continue
+            if self._point_in_polygon(float(x), float(y), zone.get("points") or []):
+                return zone_id
+        # Perimeter passes can place the mower centre slightly outside the lawn.
+        for zone in geometry.get("zones") or []:
+            zone_id = self._integer(zone.get("id"))
+            if zone_id is None:
+                continue
+            if self._point_in_or_near_polygon(float(x), float(y), zone.get("points") or [], margin=0.8):
+                return zone_id
+        return None
+
     def _position_is_inside_active_mowing_zone(self, x: float, y: float) -> bool:
         """Return True only for blade-on movement inside the active lawn.
 
@@ -1096,6 +1477,26 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         geometry = self._map_geometry or {}
         zones = geometry.get("zones") or []
         if not zones:
+            return False
+
+        # Position telemetry continues while Navimow is paused, returning home,
+        # travelling from the dock, and manoeuvring between lawn sections.  A
+        # currentMowBoundary alone therefore does not prove that the blades are
+        # actually mowing.  Only collect new *live mowing trail* points while
+        # the mower state itself is a running/mowing state.
+        state_obj = self._last_state
+        raw_state = getattr(state_obj, "state", None) if state_obj is not None else None
+        raw_state = getattr(raw_state, "value", raw_state)
+        state_name = str(raw_state or "").strip().lower()
+        mowing_states = {
+            "mowing",
+            "working",
+            "isworking",
+            "ismowing",
+            "running",
+            "isrunning",
+        }
+        if state_name not in mowing_states:
             return False
 
         # Never paint the departure/arrival manoeuvre around the dock.  Some map
@@ -1263,12 +1664,19 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Persist map history and the device-specific zone registry."""
         await self._store.async_save(
             {
+                # Persist the schema marker with the trail itself.  Without
+                # this, the next HA/integration restart treats a perfectly
+                # valid mowing-only trail as legacy travel data and clears it.
+                "trail_schema_version": self._trail_schema_version,
                 "trail": self._trail,
+                "official_trail_groups": self._official_trail_groups,
                 "zones": {
                     str(zone_id): self._zone_names.get(zone_id, "")
                     for zone_id in sorted(self._discovered_zone_ids)
                 },
                 "selected_zone_id": self._selected_zone_id,
+                "commanded_zone_ids": list(self._commanded_zone_ids),
+                "zone_progress_cache": {str(k): v for k, v in self._zone_progress_cache.items()},
                 "map_geometry": self._map_geometry,
             }
         )
@@ -1907,6 +2315,25 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         partition_setup = (0x20 if reset else 0x10) | (0x02 if ordered else 0x01)
         self._commanded_zone_ids = list(zones)
+        if reset:
+            coverage_now = self._private_telemetry.get("coverage") if isinstance(self._private_telemetry, dict) else None
+            if coverage_now is None:
+                coverage_now = self._private_slow_raw.get("coverage") if isinstance(self._private_slow_raw, dict) else None
+            starts = self._coverage_start_times(coverage_now)
+            self._official_session_zone_ids = set(zones)
+            self._official_session_baseline_start = {z: starts.get(z) for z in zones}
+            self._official_session_waiting = True
+            for zone_id in zones:
+                self._zone_progress_cache[int(zone_id)] = 0.0
+            # A fresh start invalidates server trail only for the lawns in
+            # this command.  Preserve every other partition's history.
+            reset_ids = {int(zone_id) for zone_id in zones}
+            self._official_trail_groups = [
+                group for group in self._official_trail_groups
+                if self._integer(group.get("partition_id")) not in reset_ids
+            ]
+            for zone_id in reset_ids:
+                self._official_trail_signature.pop(zone_id, None)
 
         # Begin waking/polling the pose channel *before* the mow request.  Waiting
         # for the command round-trip was wasting several valuable seconds while
@@ -1924,10 +2351,27 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # MQTT normally takes over well before this.
         self._start_fast_location_bootstrap(120.0)
 
-        # A restart clears the mower's server-side work progress. Mirror that
-        # immediately so the transparent/fresh-trail map starts clean too.
+        # START FRESH is partition-local.  Never erase work from lawns that
+        # were not part of this command.  This mirrors the official app: a
+        # partial Back Lawn remains visible if the user later starts Front Lawn.
+        # A 100% completed lawn also follows this path automatically when it is
+        # selected again (the UI does not offer Resume for 100%).
         if reset:
-            self._trail = []
+            reset_ids = {int(zone_id) for zone_id in zones}
+            self._trail = [
+                point for point in self._trail
+                if not (
+                    isinstance(point, (list, tuple))
+                    and len(point) >= 3
+                    and self._integer(point[2]) in reset_ids
+                )
+            ]
+            self._official_trail_groups = [
+                group for group in self._official_trail_groups
+                if self._integer(group.get("partition_id")) not in reset_ids
+            ]
+            for zone_id in reset_ids:
+                self._official_trail_signature.pop(zone_id, None)
             self._recent_pose_samples = []
             self._trail_gate_active = False
             self._trail_gate_boundary = None

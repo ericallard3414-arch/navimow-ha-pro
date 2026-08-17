@@ -10,6 +10,10 @@ mowing, schedules and a responsive Navimow-style dashboard into Home Assistant.
 > Segway or Navimow. It uses unofficial/private cloud interfaces that can change without
 > notice. Use the beta at your own risk and keep the official Navimow app available.
 
+### Resume or start fresh
+
+When a selected mowing zone already has partial work recorded, the dashboard offers **Resume work** or **Start fresh**. Resume preserves the server-side coverage and continues the remaining uncut area. Start fresh clears the previous session trail/progress and begins a new mowing session. If the mower is manually returned to the charging base before the job is complete, the unfinished last-commanded zone selection is restored so the same Resume / Start fresh choice is available.
+
 ## Current beta focus
 
 The current development/test baseline is the **Navimow i-series LiDAR family**. The
@@ -17,6 +21,7 @@ integration may work with additional Navimow models, but public beta feedback is
 before broader compatibility is claimed.
 
 ## Features
+- **Official swept-path trail (experimental):** downloads the same per-zone path dataset used by the Navimow app and overlays it on the Home Assistant live map.
 
 - Home Assistant config flow for Navimow account setup
 - Mower status, battery, progress and weekly mowing area
@@ -37,6 +42,13 @@ before broader compatibility is claimed.
 - Rain / wind / frost / snow / temperature-delay handling and visual alerts
 - Manual Pause and Return Home controls
 - Local integration branding for Home Assistant 2026.3+
+
+## Main dashboard
+
+The responsive dashboard keeps the live LiDAR map, mower position, zones, progress,
+cutting height, work mode and mowing controls together on one screen.
+
+![Navimow HA Pro main dashboard](docs/images/main-dashboard.jpeg)
 
 ## Installation with HACS
 
@@ -74,6 +86,15 @@ Navimow HA Pro includes a custom Lovelace card named
 `navimow-zone-dashboard-card`. The card provides the interactive LiDAR map, zone
 selection, mowing controls, schedules, settings, alerts and responsive phone/tablet/kiosk
 layout.
+
+### JavaScript card interface
+
+The bundled card includes a complete configuration drawer and a native schedule editor
+without requiring separate Lovelace cards.
+
+| Configuration drawer | Mowing schedule |
+| --- | --- |
+| ![Dashboard configuration drawer](docs/images/dashboard-configuration.jpeg) | ![Mowing schedule editor](docs/images/mowing-schedule.jpeg) |
 
 ### Recommended installation (HACS)
 
@@ -178,6 +199,32 @@ tap_action:
 ```
 
 `custom:button-card` is optional and is not required by Navimow HA Pro.
+
+## Home Assistant entities
+
+### Configuration
+
+Configuration entities expose mower behavior, weather protection, safety controls,
+battery settings, lighting, sound, work mode and editable zone names directly in Home
+Assistant.
+
+| Configuration | Weather and navigation | Work mode and zone names |
+| --- | --- | --- |
+| ![Configuration entities part one](docs/images/configuration-1.png) | ![Configuration entities part two](docs/images/configuration-2.png) | ![Configuration entities part three](docs/images/configuration-3.png) |
+
+### Sensors
+
+Sensor entities provide live state, battery, coverage, mowing areas, active-zone,
+position, heading, progress and schedule information.
+
+![Navimow HA Pro sensors](docs/images/sensors.png)
+
+### Diagnostics
+
+Diagnostic entities expose connectivity, problem state, Wi-Fi signal and service-life
+information for the blades and chassis.
+
+![Navimow HA Pro diagnostics](docs/images/diagnostics.png)
 
 ## Services
 

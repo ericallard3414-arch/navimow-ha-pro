@@ -24,6 +24,14 @@ class NavimowZoneDashboardCard extends HTMLElement {
     this._settingsUpdateRaf = 0;
     this._lastImageRefresh = 0;
     this._pendingSettings = new Map();
+    this._resumeSeeded = false;
+    this._pendingMowZones = [];
+    this._commandBusy = false;
+    this._operatingState = {paused:false,mowing:false,returning:false,atBase:false,raw:"unknown"};
+    this._mowerAnimRaf = 0;
+    this._mowerAnim = null;
+    this._lastMowerTargetAt = 0;
+    this._lastMowerPoseSignature = "";
   }
 
   set hass(hass) {
@@ -37,6 +45,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
   disconnectedCallback() {
     if (this._timer) clearInterval(this._timer);
     if (this._settingsUpdateRaf) cancelAnimationFrame(this._settingsUpdateRaf);
+    if (this._mowerAnimRaf) cancelAnimationFrame(this._mowerAnimRaf);
   }
 
   _build() {
@@ -58,6 +67,9 @@ class NavimowZoneDashboardCard extends HTMLElement {
           .fullscreenBar{display:none;position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:12;align-items:center;gap:12px;padding:9px 10px 9px 16px;border-radius:999px;background:rgba(18,22,27,.86);color:#fff;box-shadow:0 10px 34px rgba(0,0,0,.28);backdrop-filter:blur(12px);font-size:14px;font-weight:800;white-space:nowrap}.fullscreenDone{border:0;border-radius:999px;background:var(--orange);color:#fff;padding:10px 17px;font:800 13px inherit;cursor:pointer}
           .mapWrap.fullscreen{position:fixed!important;inset:0!important;margin:0!important;width:100vw!important;height:100dvh!important;min-height:100dvh!important;max-height:none!important;z-index:100000!important;border-radius:0!important;background:#f4f5f6!important;overflow:hidden!important}.mapWrap.fullscreen .mapStage{width:100%;height:100%}.mapWrap.fullscreen .mapExpand{right:max(18px,env(safe-area-inset-right));top:max(18px,env(safe-area-inset-top));bottom:auto;background:var(--orange);color:#fff}.mapWrap.fullscreen .liveBadge{right:max(76px,calc(env(safe-area-inset-right) + 76px));top:max(20px,env(safe-area-inset-top))}.mapWrap.fullscreen .mapBadge{left:max(18px,env(safe-area-inset-left));top:max(18px,env(safe-area-inset-top))}.mapWrap.fullscreen .fullscreenBar{display:flex}.mapWrap.fullscreen .delayAlert{bottom:max(78px,calc(env(safe-area-inset-bottom) + 78px))}
           .zoneOverlay{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+          .liveTrailOverlay{fill:none;stroke:#e4e7eb;stroke-width:clamp(6px,.32vw,12px);stroke-linecap:round;stroke-linejoin:round;opacity:.62;pointer-events:none;vector-effect:non-scaling-stroke}
+          @media (min-width:2000px){.liveTrailOverlay{stroke-width:16px}}
+          @media (min-width:3000px){.liveTrailOverlay{stroke-width:18px}}.smoothMower{pointer-events:none;filter:drop-shadow(0 3px 5px rgba(0,0,0,.26))}.smoothMowerBody{fill:#aeb8c9;stroke:#fff;stroke-width:2}.smoothMowerCore{fill:#202735}.smoothMowerLidar{fill:#111723;stroke:#eef2f7;stroke-width:3}.smoothMowerStatus,.smoothMowerNose{fill:var(--orange)}
           .zone{fill:transparent;stroke:transparent;stroke-width:4;cursor:pointer;transition:fill .16s ease,stroke .16s ease,filter .16s ease;pointer-events:all}
           .zone.selected{fill:rgba(255,100,30,.27);stroke:var(--orange);filter:drop-shadow(0 0 5px rgba(255,100,30,.45));outline:none}.zone:focus{outline:none}.zone:focus-visible{outline:none;stroke:var(--orange)}
           .zone:hover{fill:rgba(255,100,30,.10);stroke:rgba(255,100,30,.55)}
@@ -74,9 +86,9 @@ class NavimowZoneDashboardCard extends HTMLElement {
           .chips{display:flex;gap:6px;flex-wrap:wrap;min-height:30px;margin-bottom:clamp(8px,.9vh,18px)}.chip{border:1px solid #ffd0bd;background:#fff4ef;color:#c74712;border-radius:17px;padding:clamp(6px,.6vh,9px) clamp(9px,.75vw,13px);font-size:clamp(11px,.82vw,14px);font-weight:700}.empty{color:var(--muted);font-size:clamp(11px,.88vw,15px);padding:5px 0}
           .mainBtn{width:100%;height:clamp(52px,5.1vh,78px);border:0;border-radius:clamp(16px,1.3vw,24px);background:var(--orange);color:#fff;font-size:clamp(17px,1.45vw,24px);font-weight:800;letter-spacing:.2px;cursor:pointer;box-shadow:0 6px 20px rgba(255,100,30,.23)}
           .mainBtn:disabled{background:#d7d9dc;box-shadow:none;color:#8d9297;cursor:not-allowed}
-          .rowActions{display:grid;grid-template-columns:1fr 1fr;gap:clamp(7px,.7vw,12px);margin-top:clamp(7px,.75vh,13px)}.secondary{height:clamp(42px,3.8vh,58px);border:0;border-radius:clamp(13px,1vw,19px);background:var(--orange);font-size:clamp(13px,1vw,17px);font-weight:800;cursor:pointer;color:#fff;box-shadow:0 4px 14px rgba(255,100,30,.18);display:flex;align-items:center;justify-content:center;gap:10px}.secondary:active{background:var(--orange-dark);transform:scale(.995)}.pauseIcon{display:inline-flex;gap:4px;align-items:center}.pauseIcon i{display:block;width:4px;height:17px;border-radius:2px;background:currentColor}
+          .rowActions{display:grid;grid-template-columns:1fr 1fr;gap:clamp(7px,.7vw,12px);margin-top:clamp(7px,.75vh,13px)}.secondary{height:clamp(42px,3.8vh,58px);border:0;border-radius:clamp(13px,1vw,19px);background:var(--orange);font-size:clamp(13px,1vw,17px);font-weight:800;cursor:pointer;color:#fff;box-shadow:0 4px 14px rgba(255,100,30,.18);display:flex;align-items:center;justify-content:center;gap:10px}.secondary:active{background:var(--orange-dark);transform:scale(.995)}.secondary:disabled{background:#d7d9dc;color:#8d9297;box-shadow:none;cursor:not-allowed;transform:none}.resumeInlineBtn:disabled,.resumeAction:disabled{opacity:.48;cursor:not-allowed}.pauseIcon{display:inline-flex;gap:4px;align-items:center}.pauseIcon i{display:block;width:4px;height:17px;border-radius:2px;background:currentColor}
           .modePanel{display:none;margin:clamp(8px,.9vh,16px) 0 clamp(8px,.9vh,16px);padding:clamp(12px,1.1vh,18px) clamp(12px,1.2vw,20px);border:1px solid var(--line);border-radius:clamp(14px,1.1vw,20px);background:#fff}.modePanel.open{display:block}.modeTitle{font-weight:800;font-size:clamp(13px,1vw,17px);margin-bottom:10px}.modeChoices{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(6px,.7vw,12px)}.modeChoice{min-height:clamp(42px,4.2vh,58px);border:1px solid var(--line);border-radius:clamp(12px,1vw,18px);background:var(--soft);color:var(--ink);font-size:clamp(11px,.9vw,15px);font-weight:760;cursor:pointer;padding:8px}.modeChoice.active{background:var(--orange);border-color:var(--orange);color:#fff;box-shadow:0 4px 14px rgba(255,100,30,.18)}.modeChoice:active{transform:scale(.99)}
-          .heightPanel{display:none;margin:clamp(8px,.9vh,16px) 0 clamp(8px,.9vh,16px);padding:clamp(12px,1.1vh,18px) clamp(12px,1.2vw,20px);border:1px solid var(--line);border-radius:clamp(14px,1.1vw,20px);background:#fff}.heightPanel.open{display:block}.heightTop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.heightTitle{font-weight:800;font-size:clamp(13px,1vw,17px)}.heightValue{font-weight:850;color:var(--orange);font-size:clamp(18px,1.45vw,25px)}.heightSlider{--pct:0%;-webkit-appearance:none;appearance:none;width:100%;height:36px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:none}.heightSlider::-webkit-slider-runnable-track{height:7px;border-radius:999px;background:linear-gradient(to right,var(--orange) 0,var(--orange) var(--pct),#d9dde1 var(--pct),#d9dde1 100%)}.heightSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 8px rgba(0,0,0,.24);margin-top:-9.5px}.heightSlider::-moz-range-track{height:7px;border-radius:999px;background:#d9dde1}.heightSlider::-moz-range-progress{height:7px;border-radius:999px;background:var(--orange)}.heightSlider::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 8px rgba(0,0,0,.24)}.heightScale{display:flex;justify-content:space-between;color:var(--muted);font-size:clamp(9px,.72vw,12px);margin-top:1px}.hint{text-align:center;color:var(--muted);font-size:clamp(9px,.75vw,13px);margin-top:clamp(6px,.7vh,14px)}.error{display:none;color:#b42318;background:#fff0ed;padding:11px 14px;border-radius:14px;margin-top:12px;font-size:14px}
+          .heightPanel{display:none;margin:clamp(8px,.9vh,16px) 0 clamp(8px,.9vh,16px);padding:clamp(12px,1.1vh,18px) clamp(12px,1.2vw,20px);border:1px solid var(--line);border-radius:clamp(14px,1.1vw,20px);background:#fff}.heightPanel.open{display:block}.heightTop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.heightTitle{font-weight:800;font-size:clamp(13px,1vw,17px)}.heightValue{font-weight:850;color:var(--orange);font-size:clamp(18px,1.45vw,25px)}.heightSlider{--pct:0%;-webkit-appearance:none;appearance:none;width:100%;height:36px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:none}.heightSlider::-webkit-slider-runnable-track{height:7px;border-radius:999px;background:linear-gradient(to right,var(--orange) 0,var(--orange) var(--pct),#d9dde1 var(--pct),#d9dde1 100%)}.heightSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 8px rgba(0,0,0,.24);margin-top:-9.5px}.heightSlider::-moz-range-track{height:7px;border-radius:999px;background:#d9dde1}.heightSlider::-moz-range-progress{height:7px;border-radius:999px;background:var(--orange)}.heightSlider::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 8px rgba(0,0,0,.24)}.heightScale{display:flex;justify-content:space-between;color:var(--muted);font-size:clamp(9px,.72vw,12px);margin-top:1px}.resumeInline{display:none;margin:0 0 10px;padding:12px;border:1px solid #ffd8c3;border-radius:16px;background:#fff8f4}.resumeInline.show{display:block}.resumeInlineText{font-size:13px;font-weight:800;color:#5b4539;margin-bottom:9px}.resumeInlineActions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.resumeInlineBtn{height:44px;border-radius:13px;font-weight:900;font-size:13px;cursor:pointer}.resumeInlineBtn.resume{background:var(--orange);border:1px solid var(--orange);color:#fff}.resumeInlineBtn.fresh{background:#fff;border:1px solid var(--line);color:var(--ink)}@media(max-width:600px){.resumeInlineActions{grid-template-columns:1fr}}.resumeOverlay{position:absolute;inset:0;z-index:100020;display:none;align-items:center;justify-content:center;padding:22px;background:rgba(13,17,21,.42);backdrop-filter:blur(8px)}.resumeOverlay.open{display:flex}.resumeDialog{width:min(92%,560px);background:#fff;border-radius:26px;padding:24px;box-shadow:0 24px 80px rgba(0,0,0,.28);border:1px solid rgba(0,0,0,.08)}.resumeIcon{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#fff1e9;color:var(--orange);margin-bottom:14px}.resumeIcon ha-icon{--mdc-icon-size:30px}.resumeTitle{font-size:24px;font-weight:900;letter-spacing:-.4px}.resumeText{margin-top:7px;color:var(--muted);font-size:15px;line-height:1.45}.resumeProgress{margin-top:16px;padding:12px 14px;border-radius:15px;background:var(--soft);font-weight:800}.resumeActions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}.resumeAction{height:52px;border-radius:16px;border:1px solid var(--line);font-weight:900;font-size:14px;cursor:pointer}.resumeAction.resume{background:var(--orange);border-color:var(--orange);color:#fff}.resumeAction.fresh{background:#fff;color:var(--ink)}.resumeCancel{width:100%;height:42px;margin-top:8px;border:0;background:transparent;color:var(--muted);font-weight:800;cursor:pointer}@media(max-width:600px){.resumeActions{grid-template-columns:1fr}.resumeDialog{padding:20px}.resumeTitle{font-size:21px}}.hint{text-align:center;color:var(--muted);font-size:clamp(9px,.75vw,13px);margin-top:clamp(6px,.7vh,14px)}.error{display:none;color:#b42318;background:#fff0ed;padding:11px 14px;border-radius:14px;margin-top:12px;font-size:14px}
           .settingsOverlay{position:absolute;inset:0;z-index:50;background:rgba(17,23,28,.30);backdrop-filter:blur(4px);display:none;align-items:stretch;justify-content:flex-end;overflow:hidden}.settingsOverlay.open{display:flex}.settingsDrawer{position:absolute;top:0;right:0;width:min(90vw,1080px);max-width:calc(100% - 12px);height:100%;box-sizing:border-box;background:#fff;box-shadow:-12px 0 44px rgba(0,0,0,.18);display:flex;flex-direction:column;overflow:hidden}.settingsHeader{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(20px,2.2vh,34px) clamp(20px,2.2vw,34px);border-bottom:1px solid var(--line)}.settingsHeaderTitle{display:flex;align-items:center;gap:12px;font-size:clamp(22px,1.8vw,32px);font-weight:800}.settingsHeaderTitle ha-icon{color:var(--orange);--mdc-icon-size:clamp(28px,2.1vw,38px)}.settingsClose{width:clamp(46px,3.2vw,60px);height:clamp(46px,3.2vw,60px);border:0;border-radius:50%;background:var(--soft);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer}.settingsClose ha-icon{--mdc-icon-size:clamp(24px,1.8vw,30px)}.settingsBody{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;padding:clamp(16px,1.7vh,26px) clamp(18px,2vw,32px) clamp(28px,3vh,48px);box-sizing:border-box;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.settingsIntro{color:var(--muted);font-size:clamp(12px,.95vw,16px);margin:0 0 18px}.settingsGroup{margin-bottom:clamp(18px,2.1vh,30px)}.settingsGroupTitle{font-size:clamp(13px,1vw,17px);font-weight:850;letter-spacing:.45px;text-transform:uppercase;margin:0 0 9px;color:#555e66}.settingsList{border:1px solid var(--line);border-radius:clamp(16px,1.2vw,22px);overflow:hidden;background:#fff}.settingRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:clamp(12px,1.1vw,18px);min-height:clamp(58px,5.8vh,82px);padding:clamp(10px,1vh,15px) clamp(14px,1.25vw,20px);border:0;border-bottom:1px solid var(--line);width:100%;max-width:100%;box-sizing:border-box;background:#fff;color:var(--ink);text-align:left;cursor:pointer;font:inherit;overflow:hidden}.settingRow:last-child{border-bottom:0}.settingRow:active{background:var(--soft)}.settingIcon{width:clamp(38px,2.8vw,50px);height:clamp(38px,2.8vw,50px);border-radius:50%;background:#fff1ea;color:var(--orange);display:flex;align-items:center;justify-content:center}.settingIcon ha-icon{--mdc-icon-size:clamp(21px,1.55vw,27px)}.settingName{font-size:clamp(14px,1.05vw,18px);font-weight:720}.settingEntity{font-size:clamp(9px,.68vw,11px);color:#a0a6ac;margin-top:2px;display:none}.settingValue{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:clamp(12px,.95vw,16px);font-weight:650;max-width:260px;text-align:right}.settingValue .on{color:var(--orange)}.settingValue ha-icon{--mdc-icon-size:clamp(18px,1.3vw,23px);color:#a5abb1}.settingsEmpty{padding:24px;text-align:center;color:var(--muted)}
           .settingRow.switchRow{cursor:default}.settingRow.numberRow{grid-template-columns:auto minmax(0,1fr);cursor:default;padding-top:clamp(12px,1.2vh,18px);padding-bottom:clamp(12px,1.2vh,18px)}.settingRow.numberRow:active,.settingRow.switchRow:active{background:#fff}.numberSetting{min-width:0}.numberHead{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:clamp(8px,.8vh,12px)}.numberCurrent{font-size:clamp(13px,1vw,17px);font-weight:850;color:var(--orange);white-space:nowrap}.settingSlider{--pct:0%;-webkit-appearance:none;appearance:none;width:100%;height:34px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:none}.settingSlider::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(to right,var(--orange) 0,var(--orange) var(--pct),#d9dde1 var(--pct),#d9dde1 100%)}.settingSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 7px rgba(0,0,0,.22);margin-top:-9px}.settingSlider::-moz-range-track{height:6px;border-radius:999px;background:#d9dde1}.settingSlider::-moz-range-progress{height:6px;border-radius:999px;background:var(--orange)}.settingSlider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 7px rgba(0,0,0,.22)}.settingSlider{transition:filter .15s ease}.settingSlider:active{filter:drop-shadow(0 2px 5px rgba(255,100,30,.18))}.settingScale{display:flex;justify-content:space-between;gap:12px;color:#a0a6ac;font-size:clamp(9px,.7vw,12px);margin-top:1px}.toggleWrap{display:flex;align-items:center;gap:clamp(8px,.7vw,12px)}.toggleState{min-width:30px;color:var(--muted);font-size:clamp(11px,.85vw,14px);font-weight:800;text-align:right}.toggleState.on{color:var(--orange)}.toggleSwitch{position:relative;width:clamp(52px,3.8vw,66px);height:clamp(30px,2.35vw,38px);border:0;border-radius:999px;background:#cfd3d7;cursor:pointer;padding:0;transition:background .18s ease,box-shadow .18s ease;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}.toggleSwitch.on{background:var(--orange);box-shadow:0 3px 12px rgba(255,100,30,.22)}.toggleKnob{position:absolute;top:3px;left:3px;width:calc(100% / 2 - 3px);height:calc(100% - 6px);border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.25);transition:transform .18s ease}.toggleSwitch.on .toggleKnob{transform:translateX(100%)}
           .schedulerOverlay{position:absolute;inset:0;z-index:70;background:rgba(18,22,26,.42);backdrop-filter:blur(7px);display:none;align-items:center;justify-content:center;padding:clamp(16px,2.2vw,42px);box-sizing:border-box;overflow:hidden}.schedulerOverlay.open{display:flex}.schedulerDrawer{position:relative;width:min(92vw,1180px);height:min(88vh,1500px);max-width:100%;max-height:100%;background:#fff;border-radius:clamp(24px,2vw,38px);box-shadow:0 24px 80px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;animation:schedulePop .16s ease-out}.schedulerHeader{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(18px,2vh,30px) clamp(20px,2.2vw,34px);border-bottom:1px solid var(--line);background:#fff}.schedulerHeaderTitle{display:flex;align-items:center;gap:12px;font-size:clamp(23px,1.9vw,34px);font-weight:850;color:var(--ink)}.schedulerHeaderTitle ha-icon{color:var(--orange);--mdc-icon-size:clamp(29px,2.1vw,39px)}.schedulerClose{position:relative;z-index:5;width:clamp(50px,3.5vw,64px);height:clamp(50px,3.5vw,64px);border:0;border-radius:50%;background:var(--orange);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;box-shadow:0 4px 14px rgba(255,100,30,.24)}.schedulerClose ha-icon{pointer-events:none;--mdc-icon-size:clamp(26px,1.9vw,32px)}.schedulerClose:active{transform:scale(.95);background:var(--orange-dark)}.schedulerBody{flex:1 1 auto;min-height:0;overflow:auto;background:#f5f6f7;padding:clamp(12px,1.3vw,22px);box-sizing:border-box;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.schedulerHost{min-height:100%;max-width:100%;box-sizing:border-box}.schedulerMissing{margin:30px;padding:24px;background:#fff;border:1px solid var(--line);border-radius:20px;text-align:center;color:var(--muted)}@keyframes schedulePop{from{opacity:0;transform:scale(.975) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
@@ -129,6 +141,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
           }
           @media(max-width:700px){.settingsDrawer{width:100vw}.schedulerOverlay{padding:8px}.schedulerDrawer{width:calc(100vw - 16px);height:calc(100dvh - 16px);border-radius:22px}.topstats .pill:first-child{display:none}.settingValue{max-width:130px}.settingsEntity{display:none}}
           @media(max-width:700px){.minorActions{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics{grid-template-columns:repeat(2,1fr)}.modeChoices{grid-template-columns:1fr}.top{padding:14px 12px 10px}.sub{display:none}.pill{padding:0 9px}.mapWrap{margin:0 6px;border-radius:18px}.panel{padding:10px 12px 12px}.mapBadge{left:12px;top:12px;padding:8px 10px}.mapBadge strong{font-size:14px}.mapBadge span{font-size:11px}.zoneNameLabel{font-size:16px}.zoneIdLabel{font-size:9px}.liveBadge{right:10px;top:10px;padding:7px 9px}.metrics{gap:5px}.metric{padding:8px 7px}.rowActions{gap:6px}}
+          @media(max-width:480px){#schedulerBtn,#settingsBtn{width:38px;height:38px}#schedulerBtn ha-icon,#settingsBtn ha-icon{--mdc-icon-size:21px}.topRight{gap:6px}}
           @media(max-height:900px){.top{padding-top:8px;padding-bottom:7px}.sub{display:none}.mapBadge{padding:7px 10px}.mapBadge span{display:none}.panel{padding-top:8px;padding-bottom:8px}.statusline{margin-bottom:7px}.metrics{margin-bottom:7px}.selectedHead{margin-bottom:5px}.chips{margin-bottom:6px;min-height:24px}.mainBtn{height:46px}.secondary{height:38px}.hint{display:none}}
           @media(max-height:700px){.topstats .pill:first-child{display:none}.mapBadge{display:none}.metrics{grid-template-columns:repeat(4,1fr)}.panel{padding-top:6px}.state small{display:none}.chips{max-height:28px;overflow:hidden}.rowActions{margin-top:5px}.secondary{height:34px}}
         </style>
@@ -155,11 +168,13 @@ class NavimowZoneDashboardCard extends HTMLElement {
             <div class="heightPanel" id="heightPanel"><div class="heightTop"><div class="heightTitle">Cutting height</div><div class="heightValue" id="heightValue">—</div></div><input class="heightSlider" id="heightSlider" type="range" min="1" max="4" step="0.1" value="2.6" aria-label="Cutting height"><div class="heightScale"><span id="heightMin">1.0 in</span><span id="heightMax">4.0 in</span></div></div>
             <div class="selectedHead"><div class="selectedTitle" id="selectedTitle">SELECTED AREAS</div><div class="minorActions"><button class="minor" id="allBtn">SELECT ALL ZONES</button><button class="minor" id="clearBtn">CLEAR ZONE(S)</button></div></div>
             <div class="chips" id="chips"><span class="empty">Tap a zone on the map.</span></div>
+            <div class="resumeInline" id="resumeInline"><div class="resumeInlineText" id="resumeInlineText">Existing progress found.</div><div class="resumeInlineActions"><button class="resumeInlineBtn resume" id="resumeInlineBtn" type="button">▶ RESUME WORK</button><button class="resumeInlineBtn fresh" id="freshInlineBtn" type="button">↻ START FRESH</button></div></div>
             <button class="mainBtn" id="mowBtn" disabled>SELECT A ZONE</button>
             <div class="rowActions"><button class="secondary" id="pauseBtn"><span class="pauseIcon" aria-hidden="true"><i></i><i></i></span><span>PAUSE</span></button><button class="secondary" id="dockBtn"><span aria-hidden="true">⌂</span><span>RETURN HOME</span></button></div>
             <div class="error" id="error"></div>
-            <div class="hint">Starting a selected-zone job clears the previous trail and begins a fresh mowing session.</div>
+            <div class="hint">If a selected zone already has mowing progress, choose Resume or Start fresh.</div>
           </div>
+          <div class="resumeOverlay" id="resumeOverlay" aria-hidden="true"><div class="resumeDialog" role="dialog" aria-modal="true" aria-label="Resume mowing or start fresh"><div class="resumeIcon"><ha-icon icon="mdi:progress-clock"></ha-icon></div><div class="resumeTitle">Existing mowing progress found</div><div class="resumeText" id="resumeText">This zone already has work completed.</div><div class="resumeProgress" id="resumeProgress">—</div><div class="resumeActions"><button class="resumeAction resume" id="resumeBtn" type="button">▶ RESUME WORK</button><button class="resumeAction fresh" id="freshBtn" type="button">↻ START FRESH</button></div><button class="resumeCancel" id="resumeCancel" type="button">CANCEL</button></div></div>
           <div class="settingsOverlay" id="settingsOverlay" aria-hidden="true"><div class="settingsDrawer" role="dialog" aria-modal="true" aria-label="Navimow configuration"><div class="settingsHeader"><div class="settingsHeaderTitle"><ha-icon icon="mdi:cog"></ha-icon><span>Configuration</span></div><button class="settingsClose" id="settingsClose" type="button" aria-label="Close configuration"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="settingsBody"><p class="settingsIntro">All Home Assistant configuration entities for this mower. Tap any setting to adjust it.</p><div id="settingsContent"></div></div></div></div>
           <div class="schedulerOverlay" id="schedulerOverlay" aria-hidden="true"><div class="schedulerDrawer" role="dialog" aria-modal="true" aria-label="Navimow mowing schedule"><div class="schedulerHeader"><div class="schedulerHeaderTitle"><ha-icon icon="mdi:calendar-clock"></ha-icon><span>Mowing schedule</span></div><button class="schedulerClose" id="schedulerClose" type="button" aria-label="Close mowing schedule"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="schedulerBody"><div class="schedulerHost" id="schedulerHost"></div></div></div></div>
         </div>`;
@@ -179,7 +194,13 @@ class NavimowZoneDashboardCard extends HTMLElement {
     this.querySelector('#allBtn').addEventListener('click',()=>this._selectAll());
     this.querySelector('#clearBtn').addEventListener('click',()=>{this._selected.clear();this._paintSelection();});
     this.querySelector('#mowBtn').addEventListener('click',()=>this._mow());
-    this.querySelector('#pauseBtn').addEventListener('click',()=>this._service('lawn_mower','pause',{entity_id:this.config.mower}));
+    this.querySelector('#resumeInlineBtn').addEventListener('click',()=>this._confirmMow(false,[...this._selected]));
+    this.querySelector('#freshInlineBtn').addEventListener('click',()=>this._confirmMow(true,[...this._selected]));
+    this.querySelector('#resumeBtn').addEventListener('click',()=>this._confirmMow(false));
+    this.querySelector('#freshBtn').addEventListener('click',()=>this._confirmMow(true));
+    this.querySelector('#resumeCancel').addEventListener('click',()=>this._closeResumeDialog());
+    this.querySelector('#resumeOverlay').addEventListener('click',e=>{if(e.target===this.querySelector('#resumeOverlay'))this._closeResumeDialog();});
+    this.querySelector('#pauseBtn').addEventListener('click',()=>this._togglePauseResume());
     this.querySelector('#dockBtn').addEventListener('click',()=>{
       this._manualDockAt=Date.now();
       this.querySelector('#delayAlert')?.classList.remove('show');
@@ -204,7 +225,10 @@ class NavimowZoneDashboardCard extends HTMLElement {
     this._refreshImage();
     const prep=()=>{if(this._hass&&!this._settingsBuilt)this._renderSettings();};
     if('requestIdleCallback' in window) requestIdleCallback(prep,{timeout:1200}); else setTimeout(prep,250);
-    this._timer=setInterval(()=>{this._refreshImage();this._updateLiveBadge();},2000);
+    // Terrain imagery is essentially static. Refreshing the whole camera every
+    // two seconds made Chromium cache/swap frames unpredictably and forced the
+    // mower to jump. Dynamic trail/pose now live in the SVG overlay below.
+    this._timer=setInterval(()=>{this._refreshImage();this._updateLiveBadge();},20000);
   }
 
   _entity(id){ return this._hass?.states?.[id]; }
@@ -216,11 +240,24 @@ class NavimowZoneDashboardCard extends HTMLElement {
     const cam=this._entity(this.config.camera);
     if(!cam) return;
     const battery=this._state(this.config.battery, cam.attributes.battery ?? '—');
-    const status=this._prettyState(this._state(this.config.status,this._state(this.config.mower)));
+    const rawStatus=String(this._state(this.config.status,this._state(this.config.mower))||'unknown').trim().toLowerCase();
+    const paused=/pause/.test(rawStatus);
+    const mowing=!paused && /mow|working|running/.test(rawStatus);
+    const returning=/return|docking/.test(rawStatus);
+    const atBase=/docked|idle|charging|ischarging|isidle/.test(rawStatus) && !returning;
+    this._operatingState={paused,mowing,returning,atBase,raw:rawStatus};
+    if(this._commandBusy && (mowing||paused||returning)) this._commandBusy=false;
+    const status=this._prettyState(rawStatus);
     this.querySelector('#batteryTop').textContent=`${battery}%`;
     this.querySelector('#statusTop').textContent=status;
     const statusPill=this.querySelector('#statusTop')?.closest('.pill'); if(statusPill) statusPill.classList.toggle('activeStatus',/mow|return|pause|delay/.test(String(status).toLowerCase()));
     this.querySelector('#stateText').childNodes[0].nodeValue=status;
+    const pauseBtn=this.querySelector('#pauseBtn');
+    if(pauseBtn){
+      pauseBtn.disabled=!(paused||mowing);
+      pauseBtn.innerHTML=paused?'<span aria-hidden="true">▶</span><span>RESUME</span>':'<span class="pauseIcon" aria-hidden="true"><i></i><i></i></span><span>PAUSE</span>';
+    }
+    const dockBtn=this.querySelector('#dockBtn'); if(dockBtn) dockBtn.disabled=atBase||returning;
     this._updateDelayAlert(status,cam);
     const progress=this._state(this.config.progress,'unknown');
     this.querySelector('#progress').textContent=(progress==='unknown'||progress==='unavailable')?'—':`${Number(progress).toFixed(0)}%`;
@@ -264,7 +301,14 @@ class NavimowZoneDashboardCard extends HTMLElement {
       this.querySelector('#height').textContent='—';
     }
     this._renderZones(cam);
+    this._updateDynamicMap(cam);
+    const resumable=Array.isArray(cam?.attributes?.resumable_zone_ids)?cam.attributes.resumable_zone_ids.map(Number).filter(Number.isFinite):[];
+    if(!this._resumeSeeded && !this._selected.size && resumable.length){
+      resumable.forEach(id=>this._selected.add(id));
+      this._resumeSeeded=true;
+    }
     this._paintSelection();
+    this._updateResumeControls(cam);
     if(this.querySelector('#settingsOverlay')?.classList.contains('open') && !this._settingsUpdateRaf){
       this._settingsUpdateRaf=requestAnimationFrame(()=>{this._settingsUpdateRaf=0;this._updateSettingsControls();});
     }
@@ -354,6 +398,81 @@ class NavimowZoneDashboardCard extends HTMLElement {
     }
   }
 
+  _projectMapPoint(view,x,y){
+    if(!view) return null;
+    const scale=Number(view.scale), minX=Number(view.min_x), maxY=Number(view.max_y);
+    const nx=Number(x), ny=Number(y);
+    if(![scale,minX,maxY,nx,ny].every(Number.isFinite)) return null;
+    return {x:(nx-minX)*scale,y:(maxY-ny)*scale};
+  }
+
+  _ensureDynamicMapElements(){
+    const svg=this.querySelector('#overlay'); if(!svg) return null;
+    let trail=svg.querySelector('#liveTrailOverlay');
+    if(!trail){
+      trail=document.createElementNS('http://www.w3.org/2000/svg','path');
+      trail.id='liveTrailOverlay'; trail.setAttribute('class','liveTrailOverlay');
+      svg.insertBefore(trail,svg.firstChild);
+    }
+    let mower=svg.querySelector('#smoothMower');
+    if(!mower){
+      mower=document.createElementNS('http://www.w3.org/2000/svg','g'); mower.id='smoothMower'; mower.setAttribute('class','smoothMower');
+      mower.innerHTML='<ellipse cx="0" cy="3" rx="20" ry="16" fill="#000" opacity=".24"></ellipse><path class="smoothMowerBody" d="M -15 -14 H 9 Q 18 -14 20 -5 V 5 Q 18 14 9 14 H -15 Q -20 10 -20 5 V -5 Q -20 -10 -15 -14 Z"></path><path class="smoothMowerCore" d="M -12 -10 H 8 Q 14 -10 15 -4 V 5 Q 14 10 8 10 H -12 Z"></path><circle class="smoothMowerLidar" cx="7" cy="-2" r="8"></circle><circle class="smoothMowerStatus" cx="-10" cy="6" r="3.5"></circle><path class="smoothMowerNose" d="M 20 -5 L 25 0 L 20 5 Z" stroke="#fff" stroke-width="1.5"></path>';
+      svg.insertBefore(mower,svg.firstChild?.nextSibling||svg.firstChild);
+    }
+    return {svg,trail,mower};
+  }
+
+  _angleLerp(a,b,t){
+    let d=((b-a+540)%360)-180;
+    return a+d*t;
+  }
+
+  _drawMowerPose(pose){
+    const els=this._ensureDynamicMapElements(); if(!els||!pose) return;
+    const projected=this._projectMapPoint(this._entity(this.config.camera)?.attributes?.map_view,pose.x,pose.y);
+    if(!projected) return;
+    els.mower.style.display='';
+    els.mower.setAttribute('transform',`translate(${projected.x.toFixed(2)} ${projected.y.toFixed(2)}) rotate(${Number(pose.heading||0).toFixed(2)})`);
+  }
+
+  _animateMowerTo(target){
+    if(!target) return;
+    const now=performance.now();
+    const prev=this._mowerAnim?.current||this._mowerAnim?.to||target;
+    const wallNow=Date.now();
+    const gap=this._lastMowerTargetAt?wallNow-this._lastMowerTargetAt:0;
+    this._lastMowerTargetAt=wallNow;
+    const duration=gap?Math.max(450,Math.min(2400,gap*1.08)):0;
+    this._mowerAnim={from:{...prev},to:{...target},start:now,duration,current:{...prev}};
+    if(this._mowerAnimRaf) cancelAnimationFrame(this._mowerAnimRaf);
+    const tick=(ts)=>{
+      const a=this._mowerAnim; if(!a) return;
+      const raw=a.duration?Math.min(1,(ts-a.start)/a.duration):1;
+      const t=raw<.5?2*raw*raw:1-Math.pow(-2*raw+2,2)/2;
+      const cur={x:a.from.x+(a.to.x-a.from.x)*t,y:a.from.y+(a.to.y-a.from.y)*t,heading:this._angleLerp(Number(a.from.heading||0),Number(a.to.heading||0),t)};
+      a.current=cur; this._drawMowerPose(cur);
+      if(raw<1) this._mowerAnimRaf=requestAnimationFrame(tick); else {this._mowerAnimRaf=0;a.current={...a.to};}
+    };
+    this._mowerAnimRaf=requestAnimationFrame(tick);
+  }
+
+  _updateDynamicMap(cam){
+    const els=this._ensureDynamicMapElements(); if(!els) return;
+    const path=String(cam?.attributes?.live_trail_path||'');
+    els.trail.setAttribute('d',path);
+    els.trail.style.display=path?'':'none';
+    const pose=cam?.attributes?.mower_pose;
+    if(pose && Number.isFinite(Number(pose.x)) && Number.isFinite(Number(pose.y))){
+      const target={x:Number(pose.x),y:Number(pose.y),heading:Number(pose.heading)||0};
+      const sig=`${target.x.toFixed(4)}:${target.y.toFixed(4)}:${target.heading.toFixed(1)}`;
+      if(sig!==this._lastMowerPoseSignature){this._lastMowerPoseSignature=sig;this._animateMowerTo(target);}
+      this._lastLiveImage=Date.now();
+    }else{
+      els.mower.style.display='none';
+    }
+  }
+
   _updateLiveBadge(){
     const badge=this.querySelector('#liveBadge'), text=this.querySelector('#liveText'); if(!badge||!text) return;
     const age=this._lastLiveImage ? Math.max(0,Math.round((Date.now()-this._lastLiveImage)/1000)) : null;
@@ -419,7 +538,17 @@ class NavimowZoneDashboardCard extends HTMLElement {
     btn.querySelector('ha-icon')?.setAttribute('icon',next?'mdi:fullscreen-exit':'mdi:fullscreen');
     // Repaint after the viewport geometry changes so SVG labels/polygons line
     // up perfectly with the contain-scaled camera image on phone/tablet/laptop.
-    requestAnimationFrame(()=>{this._lastMapSignature='';const cam=this._entity(this.config.camera);if(cam)this._renderZones(cam);});
+    requestAnimationFrame(()=>{
+      this._lastMapSignature='';
+      const cam=this._entity(this.config.camera);
+      if(!cam) return;
+      this._renderZones(cam);
+      // _renderZones rebuilds the SVG, including the live mower/trail layers.
+      // Force the unchanged docked pose to be drawn again after fullscreen
+      // geometry changes instead of leaving the new mower group at SVG 0,0.
+      this._lastMowerPoseSignature='';
+      this._updateDynamicMap(cam);
+    });
   }
 
   _navigateHome(){
@@ -436,9 +565,38 @@ class NavimowZoneDashboardCard extends HTMLElement {
     const chips=this.querySelector('#chips'); chips.innerHTML=selected.length?selected.map(z=>`<span class="chip">${this._escape(z.name)}</span>`).join(''):'<span class="empty">Tap a zone on the map.</span>';
     const title=this.querySelector('#selectedTitle'); title.textContent=selected.length?`${selected.length} ZONE${selected.length===1?'':'S'} SELECTED`:'SELECTED AREAS';
     const fs=this.querySelector('#fullscreenSelection'); if(fs) fs.textContent=selected.length?`${selected.length} zone${selected.length===1?'':'s'} selected`:'No zones selected';
-    const btn=this.querySelector('#mowBtn'); btn.disabled=!selected.length; btn.textContent=selected.length===1?`▶ MOW ${selected[0].name.toUpperCase()}`:`▶ MOW ${selected.length} SELECTED ZONES`;
+    const btn=this.querySelector('#mowBtn');
+    const canLaunch=!!this._operatingState?.atBase && !this._commandBusy;
+    btn.disabled=!selected.length||!canLaunch;
+    btn.textContent=this._commandBusy?'STARTING…':(selected.length===1?`▶ MOW ${selected[0].name.toUpperCase()}`:`▶ MOW ${selected.length} SELECTED ZONES`);
     const coverage=this._entity(this.config.coverage); const cz=coverage?.attributes?.zones||[]; const area=selected.reduce((sum,z)=>{const m=cz.find(x=>Number(x.id)===Number(z.id));return sum+(m?Number(m.area)||0:0)},0);
     this.querySelector('#stateSub').textContent=selected.length?`${selected.map(z=>z.name).join(' + ')}${area?` · ${this._fmtArea(area*10.76391041671)}`:''}`:'Select the areas you want to mow';
+    const cam=this._entity(this.config.camera);
+    if(cam) this._updateResumeControls(cam);
+  }
+
+  _updateResumeControls(cam){
+    const host=this.querySelector('#resumeInline');
+    if(!host) return;
+    const progress=cam?.attributes?.zone_progress||{};
+    const selected=(this._zones||[]).filter(z=>this._selected.has(Number(z.id)));
+    const partial=selected.map(z=>({z,pct:Number(progress[String(z.id)]??progress[z.id]??0)})).filter(x=>Number.isFinite(x.pct)&&x.pct>0&&x.pct<100);
+    // Resume/Start Fresh is a *job launch* choice. While the mower is actively
+    // mowing, paused, or returning, use PAUSE/RESUME/RETURN HOME instead.
+    if(!this._operatingState?.atBase || !partial.length){
+      host.classList.remove('show');
+      this.querySelector('#mowBtn').style.display='';
+      return;
+    }
+    const summary=partial.map(x=>`${x.z.name}: ${Math.round(x.pct)}%`).join(' · ');
+    this.querySelector('#resumeInlineText').textContent=`Unfinished mowing available · ${summary}`;
+    this.querySelector('#resumeInlineBtn').textContent=partial.length===1?`▶ RESUME ${Math.round(partial[0].pct)}% WORK`:'▶ RESUME UNFINISHED WORK';
+    host.classList.add('show');
+    const disabled=!!this._commandBusy;
+    this.querySelector('#resumeInlineBtn').disabled=disabled;
+    this.querySelector('#freshInlineBtn').disabled=disabled;
+    // The two explicit choices replace the ambiguous generic MOW button.
+    this.querySelector('#mowBtn').style.display='none';
   }
 
 
@@ -713,10 +871,44 @@ class NavimowZoneDashboardCard extends HTMLElement {
     await this._service('number','set_value',{entity_id:this.config.cutting_height,value:target});
   }
 
-  async _mow(){ const zones=[...this._selected]; if(!zones.length)return; await this._service('navimow_ha_pro','mow',{zones,reset:true}); }
+  async _mow(){
+    const zones=[...this._selected]; if(!zones.length)return;
+    const cam=this._entity(this.config.camera);
+    const progress=cam?.attributes?.zone_progress||{};
+    const partial=zones.map(id=>({id,pct:Number(progress[String(id)]??progress[id]??0)})).filter(x=>Number.isFinite(x.pct)&&x.pct>0&&x.pct<100);
+    if(!partial.length){ await this._confirmMow(true,zones); return; }
+    this._pendingMowZones=zones;
+    const names=(this._zones||[]).filter(z=>zones.includes(Number(z.id)));
+    const pieces=partial.map(x=>{const z=names.find(n=>Number(n.id)===x.id);return `${z?.name||`Zone ${x.id}`}: ${Math.round(x.pct)}% complete`;});
+    this.querySelector('#resumeText').textContent=partial.length===1?'This zone already has mowing progress. Continue from where it stopped, or erase that progress and begin again.':'One or more selected zones already have mowing progress. Continue the unfinished work, or erase progress and begin all selected zones again.';
+    this.querySelector('#resumeProgress').textContent=pieces.join(' · ');
+    const overlay=this.querySelector('#resumeOverlay'); overlay.classList.add('open'); overlay.setAttribute('aria-hidden','false');
+  }
+  _closeResumeDialog(){ const overlay=this.querySelector('#resumeOverlay'); if(overlay){overlay.classList.remove('open');overlay.setAttribute('aria-hidden','true');} this._pendingMowZones=[]; }
+  async _confirmMow(reset,zones=null){
+    const chosen=zones||this._pendingMowZones||[]; if(!chosen.length)return;
+    if(!this._operatingState?.atBase){
+      const err=this.querySelector('#error');
+      err.textContent='Finish the current action first. While paused, use RESUME; use zone Resume / Start Fresh after the mower returns to the dock.';
+      err.style.display='block';
+      return;
+    }
+    this._closeResumeDialog();
+    this._commandBusy=true;
+    this._paintSelection();
+    const ok=await this._service('navimow_ha_pro','mow',{zones:chosen,reset});
+    if(!ok){this._commandBusy=false;this._paintSelection();}
+  }
+  async _togglePauseResume(){
+    if(this._operatingState?.paused){
+      await this._service('lawn_mower','resume',{entity_id:this.config.mower});
+    }else if(this._operatingState?.mowing){
+      await this._service('lawn_mower','pause',{entity_id:this.config.mower});
+    }
+  }
   async _service(domain,service,data){
     const err=this.querySelector('#error'); err.style.display='none';
-    try{await this._hass.callService(domain,service,data);}catch(e){err.textContent=e?.message||String(e);err.style.display='block';}
+    try{await this._hass.callService(domain,service,data);return true;}catch(e){err.textContent=e?.message||String(e);err.style.display='block';return false;}
   }
   _escape(v){ const d=document.createElement('div');d.textContent=String(v??'');return d.innerHTML; }
 }

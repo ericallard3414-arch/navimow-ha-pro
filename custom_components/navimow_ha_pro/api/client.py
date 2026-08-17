@@ -12,7 +12,9 @@ control) that may run in different executor threads and share the token state.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
 import json
 import logging
 import os
@@ -54,6 +56,35 @@ class NavimowError(Exception):
 
 class NavimowAuthError(NavimowError):
     """Auth/session problem (token expired, wrong uid, kicked, bad creds)."""
+
+
+def _decode_zstd_json(value: Any) -> Any:
+    """Decode Navimow's Base64 + Zstandard business payloads.
+
+    The Android app uses this format for map-detail-compress and
+    get-path-info-data-compress.  Already-decoded objects are returned as-is.
+    """
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return value
+
+    try:
+        compressed = base64.b64decode(value, validate=True)
+    except Exception:
+        return value
+
+    try:
+        import zstandard as zstd  # Home Assistant installs this from manifest.json
+
+        dctx = zstd.ZstdDecompressor()
+        with dctx.stream_reader(io.BytesIO(compressed)) as reader:
+            decoded = reader.read()
+        text = decoded.decode("utf-8")
+        return json.loads(text)
+    except Exception as err:
+        _LOGGER.debug("Could not decode Navimow Zstd payload: %s", err)
+        return value
 
 
 class NavimowCloudClient:
@@ -431,16 +462,24 @@ class NavimowCloudClient:
         return self.call("/map/index/map-list", {"vehicle_sn": sn})
 
     def path_info_time(self, sn: str) -> list:
-        """Per-zone mowing coverage for the current/last session.
-
-        Returns ``[{partitionId, area, finishedArea, partitionPercentage,
-        startTime, endTime, endTimeAlias}, ...]`` -- the authoritative mowed
-        amount per zone (proven live; works while docked too). This is the
-        coverage source; the swept-path geometry (get-path-info-data-compress)
-        is not reachable standalone, so the trail is reconstructed from position.
-        """
+        """Return authoritative per-zone mowing coverage/session metadata."""
         data = self.call("/vehicle/trail/get-path-info-time", {"vehicle_sn": sn})
         return data if isinstance(data, list) else []
+
+    def path_info_data(self, sn: str, partition_ids: list[int]) -> Any:
+        """Return official swept-path geometry for the requested partitions.
+
+        Captured from the Android app as ``getWorkPathDataCompress``.  The
+        business ``data`` value is Base64-encoded Zstandard JSON.
+        """
+        ids = [int(value) for value in partition_ids]
+        if not ids:
+            return []
+        data = self.call(
+            "/vehicle/trail/get-path-info-data-compress",
+            {"vehicle_sn": sn, "partitionList": ids},
+        )
+        return _decode_zstd_json(data)
 
     def map_detail_plain(self, sn: str, map_id: str, map_base_id: str) -> Any:
         """Uncompressed map detail: returns DeviceMapInfo with a `map_detail`

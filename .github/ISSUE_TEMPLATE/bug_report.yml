@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a reproducible Navimow HA Pro problem
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing the beta. **Do not paste passwords, tokens, MQTT credentials, serial numbers, or precise GPS coordinates.**
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.x.x"
+    validations:
+      required: true
+  - type: input
+    id: integration_version
+    attributes:
+      label: Navimow HA Pro version
+      placeholder: "0.7.0-beta.2"
+    validations:
+      required: true
+  - type: input
+    id: mower_model
+    attributes:
+      label: Mower model
+      placeholder: "Navimow i215 LiDAR"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Remove credentials, tokens, serial numbers and precise location data first.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I reviewed my report and removed credentials, tokens, serial numbers and precise location data.
+          required: true

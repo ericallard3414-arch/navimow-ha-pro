@@ -49,6 +49,31 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         )
         self.content_type = "image/svg+xml"
 
+    def _display_location(self, geometry: dict) -> dict:
+        """Return the live pose, pinned to the charging pile while docked.
+
+        Navimow may keep publishing its last approach pose after the state has
+        changed to docked/charging.  Treat the map's charging-pile geometry as
+        authoritative on every camera/card refresh so a later stale location
+        packet cannot pull the displayed mower away from its base again.
+        """
+        location = dict(self.coordinator.get_location() or {})
+        state = self.coordinator.get_device_state()
+        raw_state = getattr(state, "state", None) if state is not None else None
+        raw_state = getattr(raw_state, "value", raw_state)
+        state_name = str(raw_state or "").strip().lower()
+        dock = geometry.get("dock")
+        if state_name in {"docked", "charging", "ischarging"} and isinstance(
+            dock, (list, tuple)
+        ) and len(dock) >= 2:
+            try:
+                location["postureX"] = float(dock[0])
+                location["postureY"] = float(dock[1])
+                location["position_source"] = "dock_display_snap"
+            except (TypeError, ValueError):
+                pass
+        return location
+
     @property
     def extra_state_attributes(self) -> dict[str, object]:
         """Expose exact map geometry for the interactive Lovelace zone card."""
@@ -96,11 +121,75 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 "height": max(240, round(span_y * scale)),
             }
 
-        location = self.coordinator.get_location() or {}
+        location = self._display_location(geometry)
         delay_context = self.coordinator.get_delay_context()
+        official_groups = self.coordinator.get_official_trail_groups()
+        zone_progress = self.coordinator.get_zone_progress_map()
+        resumable_zone_ids = self.coordinator.get_resumable_zone_ids()
+        # Dynamic map primitives for the Lovelace card.  Keeping the trail
+        # and mower pose in entity attributes avoids relying on repeated camera
+        # image reloads, which Chrome/Edge can aggressively cache and which also
+        # makes the mower appear to jump every few seconds.
+        live_trail = self.coordinator.get_trail()
+        live_trail_path = ""
+        mower_pose = None
+        if view:
+            try:
+                min_x_v = float(view["min_x"])
+                max_y_v = float(view["max_y"])
+                scale_v = float(view["scale"])
+
+                def _px_v(x):
+                    return (float(x) - min_x_v) * scale_v
+
+                def _py_v(y):
+                    return (max_y_v - float(y)) * scale_v
+
+                commands = []
+                previous = None
+                previous_zone = None
+                for point in live_trail[-8000:]:
+                    if not isinstance(point, (list, tuple)) or len(point) < 2:
+                        continue
+                    try:
+                        x0, y0 = float(point[0]), float(point[1])
+                    except (TypeError, ValueError):
+                        continue
+                    zone_id = self.coordinator._integer(point[2]) if len(point) >= 3 else None
+                    gap = False
+                    if previous is not None:
+                        gap = math.hypot(x0 - previous[0], y0 - previous[1]) > 2.5
+                    new_segment = not commands or gap or (zone_id is not None and previous_zone is not None and zone_id != previous_zone)
+                    commands.append(
+                        f'{"M" if new_segment else "L"} {_px_v(x0):.1f} {_py_v(y0):.1f}'
+                    )
+                    previous = (x0, y0)
+                    previous_zone = zone_id
+                live_trail_path = " ".join(commands)
+
+                lx = location.get("postureX")
+                ly = location.get("postureY")
+                if lx is not None and ly is not None:
+                    theta = location.get("postureTheta")
+                    try:
+                        heading = (-math.degrees(float(theta))) % 360.0
+                    except (TypeError, ValueError):
+                        heading = 0.0
+                    mower_pose = {
+                        "x": round(float(lx), 4),
+                        "y": round(float(ly), 4),
+                        "heading": round(heading, 2),
+                    }
+            except (TypeError, ValueError, KeyError):
+                live_trail_path = ""
+                mower_pose = None
+
         return {
             "selectable_zones": zones,
             "map_view": view,
+            "live_trail_path": live_trail_path,
+            "live_trail_points": len(live_trail),
+            "mower_pose": mower_pose,
             # Raw Navimow type-4 location message.  The official app uses
             # this to indicate that an active/one-time mowing task is being
             # delayed (for example by rain).  Exposing it lets the Lovelace
@@ -112,6 +201,11 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             "last_task_delay_age_s": delay_context.get("last_task_delay_age_s"),
             "last_task_delay_epoch_ms": delay_context.get("last_task_delay_epoch_ms"),
             "interruption_notice": delay_context.get("interruption_notice"),
+            "official_trail_groups": len(official_groups),
+            "official_trail_points": sum(len(group.get("points") or []) for group in official_groups),
+            "official_trail_partitions": sorted({group.get("partition_id") for group in official_groups if group.get("partition_id") is not None}),
+            "zone_progress": {str(zone_id): round(progress, 1) for zone_id, progress in zone_progress.items()},
+            "resumable_zone_ids": resumable_zone_ids,
         }
 
     def camera_image(
@@ -121,8 +215,9 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
 
     def _render(self) -> str:
         trail = self.coordinator.get_trail()
-        location = self.coordinator.get_location() or {}
+        official_trail_groups = self.coordinator.get_official_trail_groups()
         geometry = self.coordinator.get_map_geometry() or {}
+        location = self._display_location(geometry)
         terrain = self.coordinator.get_terrain_map()
         zones = geometry.get("zones") or []
         paths = geometry.get("paths") or []
@@ -130,6 +225,11 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         all_points = [p for zone in zones for p in zone["points"]]
         all_points.extend(p for route in paths for p in route["points"])
         all_points.extend(trail)
+        # Official trail API data is retained for diagnostics/protocol
+        # research only. Navimow includes transport/approach movement in that
+        # dataset, including movement inside the selected lawn. The official
+        # mobile app does not paint those points as mowing coverage, so they
+        # must not affect live-map bounds or rendering.
         if isinstance(dock, list):
             all_points.append(dock)
         if not all_points and terrain is None:
@@ -187,6 +287,10 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             return inside
 
         def _zone_for_point(point):
+            if isinstance(point, (list, tuple)) and len(point) >= 3:
+                embedded = self.coordinator._integer(point[2])
+                if embedded is not None:
+                    return embedded
             try:
                 x, y = float(point[0]), float(point[1])
             except (TypeError, ValueError, IndexError):
@@ -301,28 +405,105 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 'stroke-linejoin="round"/>'
                 '</g>'
             )
-        trail_svg = (
-            f'<path d="{trail_path}" fill="none" stroke="#e4e7eb" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity=".38"/>'
-            if len(trail) >= 2 else ""
-        )
-        marker_svg = ""
-        if mower is not None:
-            marker_svg = (
-                f'<g transform="translate({px(mower[0]):.1f} {py(mower[1]):.1f}) rotate({marker_rotation:.1f})">'
-                # Soft shadow and a rounded mower body whose front faces +X.
-                '<ellipse cx="0" cy="3" rx="20" ry="16" fill="#000" opacity=".28"/>'
-                '<path d="M -15 -14 H 9 Q 18 -14 20 -5 V 5 Q 18 14 9 14 H -15 '
-                'Q -20 10 -20 5 V -5 Q -20 -10 -15 -14 Z" fill="#aeb8c9" '
-                'stroke="#f7f9fc" stroke-width="2"/>'
-                '<path d="M -12 -10 H 8 Q 14 -10 15 -4 V 5 Q 14 10 8 10 H -12 Z" '
-                'fill="#202735"/>'
-                # LiDAR turret and orange status indicator.
-                '<circle cx="7" cy="-2" r="8" fill="#111723" stroke="#eef2f7" stroke-width="3"/>'
-                '<circle cx="-10" cy="6" r="3.5" fill="#ff672c"/>'
-                # Small nose mark makes the travel direction unambiguous.
-                '<path d="M 20 -5 L 25 0 L 20 5 Z" fill="#ff672c" stroke="#fff" stroke-width="1.5"/>'
-                '</g>'
+        # Official trail data can contain both blade-on work strokes and the
+        # mower's approach/transfer route.  Only the former belongs on the live
+        # coverage map.  First constrain every server group to its own partition
+        # polygon, then suppress highly-straight connector groups.  This keeps
+        # genuine historical/resumable mowing inside the lawn while avoiding
+        # the dock-to-zone / corridor line that Navimow also stores.
+        zone_by_id = {
+            int(zone.get("id")): zone
+            for zone in zones
+            if zone.get("id") is not None
+        }
+
+        def _looks_like_transfer(points: list) -> bool:
+            clean = []
+            for point in points or []:
+                try:
+                    clean.append((float(point[0]), float(point[1])))
+                except (TypeError, ValueError, IndexError):
+                    continue
+            if len(clean) < 2:
+                return True
+            length = sum(
+                math.hypot(b[0] - a[0], b[1] - a[1])
+                for a, b in zip(clean, clean[1:])
             )
+            if length <= 0.25:
+                return True
+            chord = math.hypot(clean[-1][0] - clean[0][0], clean[-1][1] - clean[0][1])
+            straightness = chord / length if length else 1.0
+            # Navimow transfer/approach groups are typically a relatively long,
+            # almost straight polyline.  Real coverage groups contain turns,
+            # perimeter curvature, or repeated passes.  Keep the threshold
+            # deliberately conservative so a short genuine mowing pass survives.
+            return (length >= 4.0 and straightness >= 0.94) or (length >= 2.0 and len(clean) <= 5 and straightness >= 0.90)
+
+        official_svg_parts: list[str] = []
+        for group in official_trail_groups:
+            points = group.get("points") or []
+            if len(points) < 2:
+                continue
+            try:
+                partition_id = int(group.get("partition_id")) if group.get("partition_id") is not None else None
+            except (TypeError, ValueError):
+                partition_id = None
+            zone_geometry = zone_by_id.get(partition_id) if partition_id is not None else None
+            polygon = zone_geometry.get("points") if zone_geometry else None
+
+            # Split the official path whenever it leaves its own mowing zone.
+            # This alone removes historical paths crossing unrelated lawns.
+            segments: list[list] = []
+            current_segment: list = []
+            for point in points:
+                try:
+                    x0, y0 = float(point[0]), float(point[1])
+                except (TypeError, ValueError, IndexError):
+                    if len(current_segment) >= 2:
+                        segments.append(current_segment)
+                    current_segment = []
+                    continue
+                in_partition = True
+                if polygon:
+                    in_partition = _point_in_polygon(x0, y0, polygon)
+                if in_partition:
+                    current_segment.append([x0, y0])
+                else:
+                    if len(current_segment) >= 2:
+                        segments.append(current_segment)
+                    current_segment = []
+            if len(current_segment) >= 2:
+                segments.append(current_segment)
+
+            for segment in segments:
+                if _looks_like_transfer(segment):
+                    continue
+                commands = []
+                previous = None
+                for point in segment:
+                    gap = False
+                    if previous is not None:
+                        gap = math.hypot(float(point[0]) - float(previous[0]), float(point[1]) - float(previous[1])) > 2.5
+                    command = "M" if (not commands or gap) else "L"
+                    commands.append(f"{command} {px(point[0]):.1f} {py(point[1]):.1f}")
+                    previous = point
+                if commands:
+                    official_svg_parts.append(
+                        f'<path d="{" ".join(commands)}" fill="none" stroke="#ffffff" stroke-width="8" '
+                        'stroke-linecap="round" stroke-linejoin="round" opacity=".38"/>'
+                    )
+        # Do not render server path groups as cut coverage. They are a
+        # movement/path archive, not a reliable blade-on trail. The live trail
+        # below is built only from mower-state==mowing samples and is persisted
+        # across pause/return/dock for resume.
+        official_trail_svg = ""
+        # The dashboard card renders the live trail and mower as a native SVG
+        # overlay using entity attributes.  Do not bake them into the camera
+        # image: browser image caching caused missing trails on Chromium, and
+        # image-frame updates made the mower movement visibly jumpy.
+        trail_svg = ""
+        marker_svg = ""
         return "".join((
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
             f'viewBox="0 0 {width} {height}">',
@@ -332,6 +513,7 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             "".join(zone_svg),
             route_svg,
             dock_svg,
+            official_trail_svg,
             trail_svg,
             marker_svg,
             f'<rect x="{max(width - 248, 18):.1f}" y="18" width="230" height="46" rx="23" fill="#111d27" opacity=".92"/>',
