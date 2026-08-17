@@ -61,20 +61,20 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         if include_dynamic_overlays:
             self._attr_name = "Live mowing map"
             self._attr_unique_id = f"{DOMAIN}_{device.id}_live_map"
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, device.id)},
+                name=device.name,
+                manufacturer="Navimow",
+                model=device.model or "Unknown",
+                sw_version=device.firmware_version or None,
+                serial_number=device.serial_number or device.id,
+            )
         else:
             self._attr_name = "Map background"
             self._attr_unique_id = f"{DOMAIN}_{device.id}_map_background"
             # Internal rendering dependency for the bundled dashboard card.
             # Keep it active and addressable, but out of normal device views.
             self._attr_entity_registry_visible_default = False
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, device.id)},
-            name=device.name,
-            manufacturer="Navimow",
-            model=device.model or "Unknown",
-            sw_version=device.firmware_version or None,
-            serial_number=device.serial_number or device.id,
-        )
         self.content_type = "image/svg+xml"
 
     async def async_added_to_hass(self) -> None:
@@ -84,11 +84,18 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             return
         registry = er.async_get(self.hass)
         entry = registry.async_get(self.entity_id)
-        if entry is not None and entry.hidden_by is None:
-            registry.async_update_entity(
-                self.entity_id,
-                hidden_by=er.RegistryEntryHider.INTEGRATION,
-            )
+        if entry is None:
+            return
+        updates = {}
+        if entry.hidden_by is None:
+            updates["hidden_by"] = er.RegistryEntryHider.INTEGRATION
+        if entry.device_id is not None:
+            # Remove legacy 0.7.2-0.7.4 attachment from the mower device.
+            # The entity remains enabled and its state is still available to
+            # the bundled JS card through background_camera_entity_id.
+            updates["device_id"] = None
+        if updates:
+            registry.async_update_entity(self.entity_id, **updates)
 
     def _display_location(self, geometry: dict) -> dict:
         """Return the live pose, pinned to the charging pile while docked.
