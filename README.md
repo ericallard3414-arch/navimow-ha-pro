@@ -236,6 +236,21 @@ The integration includes Home Assistant services for advanced operations, includ
 
 The dashboard normally calls these for you.
 
+## Support the project
+
+![Support Navimow HA Pro](docs/images/support-navimow-ha-pro.png)
+
+If you enjoy Navimow HA Pro and would like to support the work behind it, donations are
+appreciated but never required.
+
+- **PayPal:** [paypal.me/EricAllard101](https://paypal.me/EricAllard101)
+- **Bitcoin (BTC):** `bc1qtrd4u4vvcvpgt4fnaz3emkydsn3y3y7w8mejz5`
+- **Ethereum (Ethereum network):** `0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd`
+- **BNB (BNB Smart Chain / BEP-20):** `0x8234c7edf30f26e1ffd0a778ef2d37c987f52fdd`
+
+Please verify the address and selected network before sending cryptocurrency. Donations
+are voluntary and do not purchase support, warranties or additional features.
+
 ## Privacy and diagnostics
 
 Do **not** publish Navimow passwords, OAuth/private tokens, MQTT credentials, mower
