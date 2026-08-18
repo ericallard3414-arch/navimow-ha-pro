@@ -86,7 +86,11 @@ class NavimowZoneDashboardCard extends HTMLElement {
   _heightNativeToMm(value, entityOrUnit) {
     const native = Number(value);
     if (!Number.isFinite(native)) return NaN;
-    return this._heightEntityUsesImperial(entityOrUnit) ? native * 25.4 : native;
+    if (!this._heightEntityUsesImperial(entityOrUnit)) return native;
+    // Home Assistant exposes converted height entities at one decimal inch
+    // precision (for example the mower's real 65 mm value appears as 2.6 in).
+    // Snap the reconstructed millimetres to Navimow's 5 mm height grid.
+    return Math.round((native * 25.4) / 5) * 5;
   }
 
   _heightMmToNative(valueMm, entityOrUnit) {
@@ -108,8 +112,12 @@ class NavimowZoneDashboardCard extends HTMLElement {
   }
 
   _heightStepFromNative(value, entityOrUnit) {
-    const mm = this._heightNativeToMm(value, entityOrUnit);
-    return Number.isFinite(mm) ? (this._usesImperialHeight() ? mm / 25.4 : mm) : NaN;
+    const native = Number(value);
+    if (!Number.isFinite(native)) return NaN;
+    const mm = this._heightEntityUsesImperial(entityOrUnit)
+      ? Math.max(1, Math.round(native * 25.4))
+      : native;
+    return this._usesImperialHeight() ? mm / 25.4 : mm;
   }
 
   _heightUnit() { return this._usesImperialHeight() ? "in" : "mm"; }
