@@ -1,3 +1,10 @@
+## 0.7.19
+
+- Match the official Navimow imperial cutting-height labels: each 5 mm position is displayed as a 0.2 in step, including 90 mm as 3.6 in.
+- Convert imperial card selections back to the exact mower height grid while preserving Home Assistant's native-unit conversion.
+- Preserve the confirmed model-specific i-series and X-series write protocols; both mower families can briefly show stale values until their next cloud refresh.
+- Bump the bundled frontend cache version so dashboards load the corrected unit mapping.
+
 ## 0.7.18
 
 - Polish the dashboard's dark-mode resume banner and action area.

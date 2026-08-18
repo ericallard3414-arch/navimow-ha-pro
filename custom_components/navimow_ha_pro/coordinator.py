@@ -1047,6 +1047,12 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             #   /vehicle/set/send          {"height": 65}
             #   /vehicle/set/save-set-data {"height": "65"}
             #
+            # The official app uses different wire formats by mower family.
+            #
+            # i-series (confirmed with an i215):
+            #   /vehicle/set/send          {"height": 65}
+            #   /vehicle/set/save-set-data {"height": "65"}
+            #
             # X-series keeps the hexadecimal encoding used by its settings
             # protocol. Do not share the i-series conversion with X models.
             model = str(getattr(self.device, "model", None) or "").strip().lower()
