@@ -1050,7 +1050,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # X-series keeps the hexadecimal encoding used by its settings
             # protocol. Do not share the i-series conversion with X models.
             model = str(getattr(self.device, "model", None) or "").strip().lower()
-            is_i_series = bool(re.match(r"^i\\d", model))
+            is_i_series = bool(re.match(r"^i\d", model))
             if is_i_series:
                 robot_value = wire
                 cloud_value: Any = str(wire)
