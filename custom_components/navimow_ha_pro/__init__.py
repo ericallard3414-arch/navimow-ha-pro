@@ -947,6 +947,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if "unload_flag" in data:
                 data["unload_flag"][0] = True
             sdk = data.get("sdk")
+            for coordinator in (data.get("coordinators") or {}).values():
+                coordinator.stop_background_tasks()
             watchdog_task = data.get("location_watchdog_task")
             if watchdog_task:
                 watchdog_task.cancel()
