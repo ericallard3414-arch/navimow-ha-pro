@@ -131,7 +131,8 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Navimow cloud is still returning its previous set-list snapshot.
         # This prevents unrelated setting writes from temporarily rolling
         # numbers (especially cutting height) back to stale values.
-        self._pending_setting_values: dict[str, tuple[Any, float]] = {}
+        # value, deadline, pre-write value, accept_external_change
+        self._pending_setting_values: dict[str, tuple[Any, float, Any, bool]] = {}
         self._fast_location_task: asyncio.Task | None = None
         self._fast_location_deadline: float = 0.0
         self._fast_location_last_signature: tuple[Any, ...] | None = None
@@ -651,9 +652,20 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # pending value is cleared as soon as the cloud reports the requested
         # value, or after a conservative timeout.
         now_pending = time.monotonic()
-        for pending_key, (pending_value, pending_until) in list(self._pending_setting_values.items()):
+        for pending_key, pending in list(self._pending_setting_values.items()):
+            pending_value, pending_until, previous_value, accept_external = pending
             current_value = settings.get(pending_key)
             if current_value == pending_value:
+                # The cloud acknowledged our write.
+                self._pending_setting_values.pop(pending_key, None)
+            elif (
+                accept_external
+                and current_value is not None
+                and current_value != previous_value
+            ):
+                # A different value than both the pre-write snapshot and our
+                # requested value is a genuine external/app change, not stale
+                # cloud data. Accept it immediately.
                 self._pending_setting_values.pop(pending_key, None)
             elif now_pending < pending_until:
                 settings[pending_key] = pending_value
@@ -981,8 +993,19 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         settings = dict(telemetry.get("settings") or {})
         for stable_key, stable_value in settings.items():
             if stable_value is not None and stable_key not in self._pending_setting_values:
-                self._pending_setting_values[stable_key] = (stable_value, now + 20.0)
-        self._pending_setting_values[key] = (value, now + timeout)
+                self._pending_setting_values[stable_key] = (
+                    stable_value,
+                    now + 20.0,
+                    stable_value,
+                    False,
+                )
+        previous_value = settings.get(key)
+        self._pending_setting_values[key] = (
+            value,
+            now + timeout,
+            previous_value,
+            True,
+        )
         settings[key] = value
         telemetry["settings"] = settings
         self._private_telemetry = telemetry
