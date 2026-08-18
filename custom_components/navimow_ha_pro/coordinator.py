@@ -1,4 +1,5 @@
 """DataUpdateCoordinator for Navimow integration."""
+import asyncio
 import logging
 import math
 import json

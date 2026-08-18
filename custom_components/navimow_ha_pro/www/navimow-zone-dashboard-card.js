@@ -1071,7 +1071,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
   }
   async _togglePauseResume(){
     if(this._operatingState?.paused){
-      await this._service('lawn_mower','resume',{entity_id:this.config.mower});
+      await this._service('lawn_mower','start_mowing',{entity_id:this.config.mower});
     }else if(this._operatingState?.mowing){
       await this._service('lawn_mower','pause',{entity_id:this.config.mower});
     }
