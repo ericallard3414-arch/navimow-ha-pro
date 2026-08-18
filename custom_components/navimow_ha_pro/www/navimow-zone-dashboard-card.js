@@ -83,14 +83,29 @@ class NavimowZoneDashboardCard extends HTMLElement {
     return /^(in|inch|inches)$/i.test(String(unit || "").trim());
   }
 
+  _heightSupportedMm(entity) {
+    const values = entity?.attributes?.navimow_supported_values_mm;
+    if (!Array.isArray(values)) return [];
+    return [...new Set(values.map(Number).filter(Number.isFinite))].sort((a,b)=>a-b);
+  }
+
+  _heightIsQuarterInch(entity) {
+    return entity?.attributes?.navimow_height_family === "quarter_inch";
+  }
+
+  _heightSnapMm(valueMm, entity) {
+    const mm = Number(valueMm);
+    if (!Number.isFinite(mm)) return NaN;
+    const values = this._heightSupportedMm(entity);
+    if (!values.length) return Math.round(mm / 5) * 5;
+    return values.reduce((best,value)=>Math.abs(value-mm)<Math.abs(best-mm)?value:best,values[0]);
+  }
+
   _heightNativeToMm(value, entityOrUnit) {
     const native = Number(value);
     if (!Number.isFinite(native)) return NaN;
-    if (!this._heightEntityUsesImperial(entityOrUnit)) return native;
-    // Home Assistant exposes converted height entities at one decimal inch
-    // precision (for example the mower's real 65 mm value appears as 2.6 in).
-    // Snap the reconstructed millimetres to Navimow's 5 mm height grid.
-    return Math.round((native * 25.4) / 5) * 5;
+    const mm = this._heightEntityUsesImperial(entityOrUnit) ? native * 25.4 : native;
+    return this._heightSnapMm(mm, typeof entityOrUnit === "object" ? entityOrUnit : null);
   }
 
   _heightMmToNative(valueMm, entityOrUnit) {
@@ -99,29 +114,57 @@ class NavimowZoneDashboardCard extends HTMLElement {
     return this._heightEntityUsesImperial(entityOrUnit) ? mm / 25.4 : mm;
   }
 
+  _heightMmToDisplay(valueMm, entity) {
+    const mm = this._heightSnapMm(valueMm, entity);
+    if (!Number.isFinite(mm) || !this._usesImperialHeight()) return mm;
+    if (this._heightIsQuarterInch(entity)) return Math.round((mm / 25.4) * 4) / 4;
+    return mm / 25;
+  }
+
   _heightFromNative(value, entityOrUnit) {
-    const mm = this._heightNativeToMm(value, entityOrUnit);
-    // Navimow labels each 5 mm position as a 0.2 in step (25 mm per
-    // displayed inch), so 90 mm is shown as 3.6 in in the official app.
-    return Number.isFinite(mm) ? (this._usesImperialHeight() ? mm / 25 : mm) : NaN;
+    const entity = typeof entityOrUnit === "object" ? entityOrUnit : null;
+    return this._heightMmToDisplay(this._heightNativeToMm(value, entityOrUnit), entity);
+  }
+
+  _heightDisplayToMm(value, entity) {
+    const shown = Number(value);
+    if (!Number.isFinite(shown)) return NaN;
+    const values = this._heightSupportedMm(entity);
+    if (this._usesImperialHeight()) {
+      if (this._heightIsQuarterInch(entity) && values.length) {
+        return values.reduce((best,mm)=>{
+          const label=Math.round((mm/25.4)*4)/4;
+          const bestLabel=Math.round((best/25.4)*4)/4;
+          return Math.abs(label-shown)<Math.abs(bestLabel-shown)?mm:best;
+        },values[0]);
+      }
+      return this._heightSnapMm(shown * 25, entity);
+    }
+    return this._heightSnapMm(shown, entity);
   }
 
   _heightToNative(value, entityOrUnit) {
-    const shown = Number(value);
-    if (!Number.isFinite(shown)) return NaN;
-    // Reverse the official app's nominal inch labels back onto the exact
-    // 5 mm mower grid before converting to Home Assistant's native unit.
-    const mm = this._usesImperialHeight() ? shown * 25 : shown;
-    return this._heightMmToNative(mm, entityOrUnit);
+    const entity = typeof entityOrUnit === "object" ? entityOrUnit : null;
+    return this._heightMmToNative(this._heightDisplayToMm(value, entity), entityOrUnit);
   }
 
   _heightStepFromNative(value, entityOrUnit) {
+    if (this._heightIsQuarterInch(entityOrUnit)) return this._usesImperialHeight() ? 0.25 : 1;
     const native = Number(value);
     if (!Number.isFinite(native)) return NaN;
     const mm = this._heightEntityUsesImperial(entityOrUnit)
       ? Math.max(1, Math.round(native * 25.4))
       : native;
     return this._usesImperialHeight() ? mm / 25 : mm;
+  }
+
+  _heightPrecision(entity) {
+    return this._usesImperialHeight() && this._heightIsQuarterInch(entity) ? 2 : 1;
+  }
+
+  _formatHeight(value, entity) {
+    const n=Number(value);
+    return Number.isFinite(n) ? n.toFixed(this._heightPrecision(entity)) : "—";
   }
 
   _heightUnit() { return this._usesImperialHeight() ? "in" : "mm"; }
@@ -516,19 +559,19 @@ class NavimowZoneDashboardCard extends HTMLElement {
           this._pendingSettings.delete(this.config.cutting_height);
         }
       }
-      this.querySelector('#height').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
+      this.querySelector('#height').textContent=Number.isFinite(value)?`${this._formatHeight(value,h)} ${unit}`:`${h.state} ${unit}`;
       const slider=this.querySelector('#heightSlider');
-      const nativeMin=Number(h.attributes.min), nativeMax=Number(h.attributes.max), nativeStep=Number(h.attributes.step);
+      const nativeMin=Number(h.attributes.min), nativeMax=Number(h.attributes.max);
       const min=this._heightFromNative(nativeMin,h), max=this._heightFromNative(nativeMax,h);
-      // Some Home Assistant clients convert the state/min/max to inches
-      // while leaving the backend's 5 mm step untouched. Using that mixed
-      // attribute would create only minimum/maximum slider positions.
-      const displayStep=this._usesImperialHeight()?5/25.4:5;
-      const choices=[];
-      if(Number.isFinite(min)&&Number.isFinite(max)&&Number.isFinite(displayStep)&&displayStep>0){
-        const count=Math.max(1,Math.round((max-min)/displayStep));
-        for(let index=0;index<=count;index+=1){
-          choices.push(Number((index===count?max:min+(index*displayStep)).toFixed(4)));
+      const supportedMm=this._heightSupportedMm(h);
+      const choices=supportedMm.map(mm=>this._heightMmToDisplay(mm,h));
+      if(!choices.length){
+        const displayStep=this._usesImperialHeight()?5/25:5;
+        if(Number.isFinite(min)&&Number.isFinite(max)&&displayStep>0){
+          const count=Math.max(1,Math.round((max-min)/displayStep));
+          for(let index=0;index<=count;index+=1){
+            choices.push(Number((index===count?max:min+(index*displayStep)).toFixed(4)));
+          }
         }
       }
       if(!choices.length&&Number.isFinite(value)) choices.push(value);
@@ -543,8 +586,8 @@ class NavimowZoneDashboardCard extends HTMLElement {
       }
       this._paintSettingSlider(slider);
       this.querySelector('#heightValue').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
-      this.querySelector('#heightMin').textContent=`${Number.isFinite(min)?min.toFixed(1):'1.0'} ${unit}`;
-      this.querySelector('#heightMax').textContent=`${Number.isFinite(max)?max.toFixed(1):'4.0'} ${unit}`;
+      this.querySelector('#heightMin').textContent=`${Number.isFinite(min)?this._formatHeight(min,h):'—'} ${unit}`;
+      this.querySelector('#heightMax').textContent=`${Number.isFinite(max)?this._formatHeight(max,h):'—'} ${unit}`;
     }else{
       this.querySelector('#height').textContent='—';
     }
@@ -1011,16 +1054,27 @@ class NavimowZoneDashboardCard extends HTMLElement {
         const aminNative=Number(e.attributes.min), amaxNative=Number(e.attributes.max), astepNative=Number(e.attributes.step);
         const amin=isCutHeight?this._heightFromNative(aminNative,e):aminNative;
         const amax=isCutHeight?this._heightFromNative(amaxNative,e):amaxNative;
-        const astep=isCutHeight?(this._usesImperialHeight()?5/25.4:5):astepNative;
-        const min=Number.isFinite(amin)?amin:0; const max=Number.isFinite(amax)?amax:100;
-        const backendStep=Number.isFinite(astep)&&astep>0?astep:1;
         const unit=isCutHeight?this._heightUnit():nativeUnit;
         const isWholePercent=(unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(e.entity_id) || /charging limit|return-to-dock battery/i.test(this._settingLabel(e))));
-        const span=Math.max(max-min,1);
-        const visualStep=isWholePercent?1:(isCutHeight?backendStep:Math.max(span/1000,Math.min(backendStep/10,0.1)));
-        const shown=Number.isFinite(raw)?`${raw.toLocaleString(undefined,{maximumFractionDigits:isCutHeight?1:2})}${unit?` ${this._escape(unit)}`:''}`:'—';
-        const pct=max>min?Math.max(0,Math.min(100,(value-min)/(max-min)*100)):0;
-        return `<div class="settingRow numberRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span class="numberSetting"><span class="numberHead"><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="numberCurrent" data-number-value="${eid}">${shown}</span></span><input class="settingSlider" style="--pct:${pct}%" type="range" data-number="${eid}" min="${min}" max="${max}" step="${visualStep}" value="${value}" aria-label="${label}"><span class="settingScale"><span>${min.toLocaleString(undefined,{maximumFractionDigits:isCutHeight?1:2})}${unit?` ${this._escape(unit)}`:''}</span><span>${max.toLocaleString(undefined,{maximumFractionDigits:isCutHeight?1:2})}${unit?` ${this._escape(unit)}`:''}</span></span></span></div>`;
+        let min=Number.isFinite(amin)?amin:0, max=Number.isFinite(amax)?amax:100;
+        let sliderMin=min, sliderMax=max, sliderStep=Number.isFinite(astepNative)&&astepNative>0?astepNative:1, sliderValue=value, heightValues='';
+        if(isCutHeight){
+          const choices=this._heightSupportedMm(e).map(mm=>this._heightMmToDisplay(mm,e));
+          if(choices.length){
+            let closest=0;
+            choices.forEach((choice,index)=>{if(Math.abs(choice-value)<Math.abs(choices[closest]-value))closest=index;});
+            min=choices[0]; max=choices[choices.length-1];
+            sliderMin=0; sliderMax=choices.length-1; sliderStep=1; sliderValue=closest;
+            heightValues=choices.join(',');
+          }
+        }else if(isWholePercent){
+          sliderStep=1;
+        }
+        const shown=Number.isFinite(raw)?`${isCutHeight?this._formatHeight(raw,e):raw.toLocaleString(undefined,{maximumFractionDigits:2})}${unit?` ${this._escape(unit)}`:''}`:'—';
+        const pct=sliderMax>sliderMin?Math.max(0,Math.min(100,(sliderValue-sliderMin)/(sliderMax-sliderMin)*100)):0;
+        const minText=isCutHeight?this._formatHeight(min,e):min.toLocaleString(undefined,{maximumFractionDigits:2});
+        const maxText=isCutHeight?this._formatHeight(max,e):max.toLocaleString(undefined,{maximumFractionDigits:2});
+        return `<div class="settingRow numberRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span class="numberSetting"><span class="numberHead"><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="numberCurrent" data-number-value="${eid}">${shown}</span></span><input class="settingSlider" style="--pct:${pct}%" type="range" data-number="${eid}" data-height-values="${heightValues}" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" value="${sliderValue}" aria-label="${label}"><span class="settingScale"><span>${minText}${unit?` ${this._escape(unit)}`:''}</span><span>${maxText}${unit?` ${this._escape(unit)}`:''}</span></span></span></div>`;
       }
       const value=this._settingValue(e);
       return `<button class="settingRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="settingValue"><span>${this._escape(value)}</span><ha-icon icon="mdi:chevron-right"></ha-icon></span></button>`;
@@ -1046,15 +1100,15 @@ class NavimowZoneDashboardCard extends HTMLElement {
       const entityId=slider.dataset.number; let raf=0;
       const preview=()=>{
         raf=0; this._paintSettingSlider(slider);
-        const entity=this._entity(entityId); const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height'); const unit=isCutHeight?this._heightUnit():(entity?.attributes?.unit_of_measurement||''); const n=Number(slider.value);
-        const wholePct=unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(entityId)); const out=root.querySelector(`[data-number-value="${CSS.escape(entityId)}"]`); if(out) out.textContent=`${Number.isFinite(n)?(wholePct?Math.round(n).toLocaleString():n.toLocaleString(undefined,{maximumFractionDigits:2})):'—'}${unit?` ${unit}`:''}`;
+        const entity=this._entity(entityId); const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height'); const unit=isCutHeight?this._heightUnit():(entity?.attributes?.unit_of_measurement||''); const n=isCutHeight?this._heightSliderDisplayedValue(slider):Number(slider.value);
+        const wholePct=unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(entityId)); const out=root.querySelector(`[data-number-value="${CSS.escape(entityId)}"]`); if(out) out.textContent=`${Number.isFinite(n)?(isCutHeight?this._formatHeight(n,entity):(wholePct?Math.round(n).toLocaleString():n.toLocaleString(undefined,{maximumFractionDigits:2}))):'—'}${unit?` ${unit}`:''}`;
       };
       slider.addEventListener('pointerdown',()=>{slider.dataset.dragging='1';});
       slider.addEventListener('input',()=>{if(!raf) raf=requestAnimationFrame(preview);});
       const commit=async()=>{
         slider.dataset.dragging='0'; if(raf){cancelAnimationFrame(raf);raf=0;} preview();
-        let n=Number(slider.value); if(!Number.isFinite(n)) return;
         const entity=this._entity(entityId); const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height');
+        let n=isCutHeight?this._heightSliderDisplayedValue(slider):Number(slider.value); if(!Number.isFinite(n)) return;
         const nativeMin=Number(entity?.attributes?.min), nativeMax=Number(entity?.attributes?.max), astep=Number(entity?.attributes?.step);
         const amin=isCutHeight?this._heightFromNative(nativeMin,entity):nativeMin, amax=isCutHeight?this._heightFromNative(nativeMax,entity):nativeMax;
         const unit=isCutHeight?this._heightUnit():(entity?.attributes?.unit_of_measurement||''); const isWholePercent=(unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(entityId) || /charging limit|return-to-dock battery/i.test(this._settingLabel(entity||{}))));
@@ -1064,7 +1118,12 @@ class NavimowZoneDashboardCard extends HTMLElement {
         const target=Number(n.toFixed(3));
         const serviceTarget=isCutHeight?this._heightToNative(n,entity):target;
         this._pendingSettings.set(entityId,{type:'number',value:target,expires:Date.now()+45000});
-        slider.value=String(target); preview();
+        if(isCutHeight){
+          const values=String(slider.dataset.heightValues||'').split(',').map(Number).filter(Number.isFinite);
+          let closest=0; values.forEach((choice,index)=>{if(Math.abs(choice-target)<Math.abs(values[closest]-target))closest=index;});
+          slider.value=String(closest);
+        }else slider.value=String(target);
+        preview();
         try{await this._service('number','set_value',{entity_id:entityId,value:serviceTarget});}
         catch(_e){this._pendingSettings.delete(entityId); this._updateSettingsControls();}
       };
@@ -1107,11 +1166,17 @@ class NavimowZoneDashboardCard extends HTMLElement {
         else if(now<pending.expires){value=Number(pending.value);}
         else{this._pendingSettings.delete(entityId);}
       }
-      if(slider.dataset.dragging!=='1') slider.value=String(value);
+      if(slider.dataset.dragging!=='1'){
+        if(isCutHeight){
+          const values=String(slider.dataset.heightValues||'').split(',').map(Number).filter(Number.isFinite);
+          let closest=0; values.forEach((choice,index)=>{if(Math.abs(choice-value)<Math.abs(values[closest]-value))closest=index;});
+          slider.value=String(closest);
+        }else slider.value=String(value);
+      }
       this._paintSettingSlider(slider);
       if(slider.dataset.dragging!=='1'){
         const unit=isCutHeight?this._heightUnit():(e.attributes.unit_of_measurement||''); const out=root.querySelector(`[data-number-value="${CSS.escape(entityId)}"]`);
-        if(out) out.textContent=`${value.toLocaleString()}${unit?` ${unit}`:''}`;
+        if(out) out.textContent=`${isCutHeight?this._formatHeight(value,e):value.toLocaleString()}${unit?` ${unit}`:''}`;
       }
     });
   }
@@ -1150,13 +1215,15 @@ class NavimowZoneDashboardCard extends HTMLElement {
   _previewHeight(raw){
     const n=Number(raw); if(!Number.isFinite(n)) return;
     const unit=this._heightUnit();
-    this.querySelector('#heightValue').textContent=`${n.toFixed(1)} ${unit}`;
-    this.querySelector('#height').textContent=`${n.toFixed(1)} ${unit}`;
+    const entity=this._entity(this.config.cutting_height);
+    const shown=this._formatHeight(n,entity);
+    this.querySelector('#heightValue').textContent=`${shown} ${unit}`;
+    this.querySelector('#height').textContent=`${shown} ${unit}`;
   }
   async _setHeight(raw){
     const n=Number(raw); if(!Number.isFinite(n)) return;
-    const target=Number(n.toFixed(1));
     const entity=this._entity(this.config.cutting_height);
+    const target=Number(n.toFixed(this._heightPrecision(entity)));
     const nativeTarget=this._heightToNative(n,entity);
     this._pendingSettings.set(this.config.cutting_height,{type:'number',value:target,expires:Date.now()+45000});
     this._previewHeight(target);
