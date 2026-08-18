@@ -1020,9 +1020,37 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         serial = str(getattr(self.device, "serial_number", None) or self.device.id or "")
         vehicle_type = self._integer(self._private_telemetry.get("vehicle_type")) or 0
         wire = int(round(displayed_value)) * scale
+        robot_value = f"{wire:02X}"
+
+        if setting_key == "cutting_height":
+            # Home Assistant converts imperial display values back to mm, which
+            # can produce values such as 66.04 for 2.6 in. The mower accepts
+            # only the discrete values advertised by mowingHeightList, so snap
+            # to the nearest supported native height before writing.
+            height_values = (
+                (self._private_telemetry.get("limits") or {}).get(
+                    "cutting_height_values"
+                )
+                or []
+            )
+            valid_heights = [
+                height
+                for value in height_values
+                if (height := self._integer(value)) is not None
+            ]
+            if valid_heights:
+                wire = min(valid_heights, key=lambda height: abs(height - wire))
+
+            # i-series MowerSettingBean expects decimal height text. X-series
+            # uses hexadecimal text for the robot channel.
+            model = str(getattr(self.device, "model", None) or "").strip().lower()
+            if re.match(r"^i\\d", model):
+                robot_value = str(wire)
+            else:
+                robot_value = f"{wire:02X}"
 
         def _write() -> None:
-            client.send_setting_device(serial, {write_key: f"{wire:02X}"})
+            client.send_setting_device(serial, {write_key: robot_value})
             client.save_setting_iot(
                 serial, vehicle_type, {write_key: f"{wire:02X}" if cloud_hex else wire}
             )
