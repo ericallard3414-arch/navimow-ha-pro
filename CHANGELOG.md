@@ -1,3 +1,13 @@
+## 0.7.23
+
+- Send telemetry-detected quarter-inch heights to the mower as numeric millimetres.
+- Fix X430 0.75 in being transmitted as hexadecimal `13` and interpreted as decimal 13 mm.
+- Fix X430 4.00 in being transmitted as hexadecimal `65` and interpreted as decimal 65 mm / approximately 2.6 in.
+- Keep X430 commands bounded and snapped to its advertised 19–101 mm / 0.75–4.00 in positions.
+- Share one telemetry-driven height-family decision between the entity, card and command writer.
+- Preserve two-decimal quarter-inch labels throughout the dashboard.
+- Bump the bundled frontend cache version.
+
 ## 0.7.22
 
 - Make cutting-height controls use the exact discrete height list advertised by each mower.
@@ -7,8 +17,6 @@
 - Expose supported millimetre positions and the height family on the Home Assistant number entity.
 - Use discrete telemetry-provided positions in both the main dashboard slider and Configuration slider.
 - Preserve two-decimal labels such as 0.75 in and exact backend snapping.
-- Send telemetry-detected quarter-inch heights to the mower as numeric millimetres, preventing the X430 from interpreting hexadecimal text as a much lower decimal height.
-- Keep the confirmed X430 range bounded to its advertised 19–101 mm / 0.75–4.00 in positions.
 - Bump the bundled frontend cache version so dashboards load the model-aware controls.
 
 ## 0.7.21
