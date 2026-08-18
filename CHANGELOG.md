@@ -1,3 +1,9 @@
+## 0.7.13
+
+- Send cutting-height values to i-series mowers using their decimal robot encoding while retaining hexadecimal encoding for X-series models.
+- Snap Home Assistant's imperial-to-metric conversion to the nearest height advertised by the mower before writing.
+- Prevent i215 height selections such as 2.6 in from being normalized back to approximately 1.6–1.8 in.
+
 ## 0.7.12
 
 - Correctly decode hexadecimal cutting-height values reported by X-series mowers.
