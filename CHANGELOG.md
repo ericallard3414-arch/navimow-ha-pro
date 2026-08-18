@@ -1,3 +1,10 @@
+## 0.7.21
+
+- Distinguish stale pre-write settings from genuine changes made in the official Navimow app.
+- Keep protecting a Home Assistant height selection while the cloud repeats its old value.
+- Accept a third, externally selected height immediately instead of masking it for the full optimistic-write timeout.
+- Preserve the 0.7.20 per-cycle settings refresh and all model-specific command encodings.
+
 ## 0.7.20
 
 - Refresh mutable mower settings every coordinator cycle so changes made in the Navimow app propagate back to Home Assistant promptly.
