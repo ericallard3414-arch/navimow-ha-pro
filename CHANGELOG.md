@@ -1,3 +1,10 @@
+## 0.7.18
+
+- Polish the dashboard's dark-mode resume banner and action area.
+- Replace light-theme white and grey disabled controls with dark surfaces, subtle borders and readable muted text.
+- Keep Resume visually prominent while improving Start Fresh, Pause and Return Home states.
+- Bump the bundled frontend cache version so dashboards load the updated dark palette.
+
 ## 0.7.17
 
 - Fix cutting-height sliders when Home Assistant converts state/min/max to inches but leaves the backend step in millimetres.
