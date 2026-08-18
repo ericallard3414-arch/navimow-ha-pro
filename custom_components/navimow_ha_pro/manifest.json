@@ -13,5 +13,5 @@
     "navimow-sdk>=0.1.2",
     "zstandard>=0.23.0"
   ],
-  "version": "0.7.14"
+  "version": "0.7.16"
 }
