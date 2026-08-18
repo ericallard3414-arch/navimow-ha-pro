@@ -63,7 +63,10 @@ before broader compatibility is claimed.
 - Live mowing trail that excludes travel-to-zone and return-home movement
 - Perimeter trail tolerance for edge mowing near/outside the zone polygon
 - Dock-position correction when the mower reports Docked/Charging
-- Cutting-height control
+- Cutting-height control with model-aware i-series and X-series encoding
+- Automatic / Metric / Imperial cutting-height display units
+- Card dark mode saved independently in each browser or Home Assistant app
+- Automatic mower entity discovery and mower-friendly-name heading
 - Precision / Standard / Efficient work modes
 - Responsive Navimow-style dashboard for kiosk, desktop, tablet and phone
 - Fullscreen map mode for easier zone selection on smaller displays
@@ -122,6 +125,24 @@ layout.
 The bundled card includes a complete configuration drawer and a native schedule editor
 without requiring separate Lovelace cards.
 
+#### Appearance and measurement units
+
+Open the card's **Settings → Appearance** section to configure:
+
+- **Dark mode** — switches the complete dashboard, map surround, controls, settings and
+  schedule interface to the dark palette. The selection is saved in the current browser
+  or Home Assistant mobile app.
+- **Measurement units** — choose **Automatic**, **Metric** or **Imperial**. Automatic
+  follows Home Assistant's configured unit system. Metric displays cutting height in
+  millimetres; Imperial displays it in inches.
+
+Unit conversion affects only what the card displays. Commands continue to use the
+mower's native supported millimetre values. Navimow HA Pro snaps converted values to the
+height list advertised by the mower and uses the correct model-family protocol: i-series
+uses numeric robot commands followed by decimal-string cloud persistence, while X-series
+retains its hexadecimal encoding.
+
+
 | Configuration drawer | Mowing schedule |
 | --- | --- |
 | ![Dashboard configuration drawer](docs/images/dashboard-configuration.jpeg) | ![Mowing schedule editor](docs/images/mowing-schedule.jpeg) |
@@ -148,7 +169,9 @@ views:
 ```
 
 No mower entity IDs are required in the card YAML. The card discovers the entities
-created by Navimow HA Pro for the configured mower, including renamed entities.
+created by Navimow HA Pro for the configured mower, including renamed entities. The card
+heading also uses that mower's Home Assistant friendly name or model automatically, so
+the dashboard is not tied to a hardcoded mower name.
 
 If Home Assistant contains more than one Navimow mower, specify only the live-map
 camera that belongs to the mower shown by this card. Every related entity is then
