@@ -1,3 +1,10 @@
+## 0.7.11
+
+- Fix Resume in the dashboard card by calling Home Assistant's supported `lawn_mower.start_mowing` action.
+- Add the missing `asyncio` import used by the fast location bootstrap task.
+- Prevent unhandled `NameError` exceptions during location bootstrap and cancellation.
+- Bump the bundled frontend cache version so browsers and Android WebView load the corrected Resume action.
+
 ## 0.7.10
 
 - Prevent Recorder warnings when large X-series LiDAR maps exceed Home Assistant's 16 KiB state-attribute limit.
