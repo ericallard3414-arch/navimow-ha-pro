@@ -484,9 +484,17 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     raw["official_path_ids"] = fetch_ids
                 except (NavimowError, OSError, ValueError):
                     pass
+            # Settings are mutable from both Home Assistant and the official
+            # Navimow app. Fetch them on every coordinator cycle so app-originated
+            # changes appear promptly and a successful HA write cannot later be
+            # overwritten by an old slow-cache snapshot.
+            try:
+                raw["set_list"] = client.set_list(serial)
+            except NavimowError:
+                raw.setdefault("set_list", {})
+
             if slow:
                 getters = {
-                    "set_list": lambda: client.set_list(serial),
                     "maintenance": lambda: client.maintenance(serial),
                     "device_info": lambda: client.device_info(serial),
                     "today_plan": lambda: client.today_plan(serial, vehicle_type),
@@ -958,7 +966,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         return output
 
-    def _set_pending_setting(self, key: str | None, value: Any, timeout: float = 45.0) -> None:
+    def _set_pending_setting(self, key: str | None, value: Any, timeout: float = 180.0) -> None:
         """Optimistically hold config values until Navimow's set-list catches up.
 
         A write to *any* setting can make the cloud briefly return an older
