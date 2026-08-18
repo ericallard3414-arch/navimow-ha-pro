@@ -7,6 +7,8 @@
 - Expose supported millimetre positions and the height family on the Home Assistant number entity.
 - Use discrete telemetry-provided positions in both the main dashboard slider and Configuration slider.
 - Preserve two-decimal labels such as 0.75 in and exact backend snapping.
+- Send telemetry-detected quarter-inch heights to the mower as numeric millimetres, preventing the X430 from interpreting hexadecimal text as a much lower decimal height.
+- Keep the confirmed X430 range bounded to its advertised 19–101 mm / 0.75–4.00 in positions.
 - Bump the bundled frontend cache version so dashboards load the model-aware controls.
 
 ## 0.7.21
