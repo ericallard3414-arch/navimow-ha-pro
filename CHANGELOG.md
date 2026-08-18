@@ -1,3 +1,10 @@
+## 0.7.16
+
+- Replace the main cutting-height range with discrete positions mapped to exact mower-supported height increments.
+- Fix the slider thumb remaining at the minimum in Chromium and Android WebView after switching display units.
+- Preserve correct Automatic, Metric and Imperial readouts and convert commands back to the Home Assistant entity's native unit.
+- Bump the bundled frontend cache version so dashboards load the corrected card instead of the cached 0.7.15 JavaScript.
+
 ## 0.7.14
 
 - Add Automatic, Metric and Imperial measurement-unit choices to the dashboard Configuration drawer.
