@@ -17,6 +17,9 @@ class NavimowZoneDashboardCard extends HTMLElement {
       ...config,
     };
     this._darkMode = typeof config.dark_mode === "boolean" ? config.dark_mode : this._loadDarkMode();
+    this._heightUnits = ["auto", "metric", "imperial"].includes(config.height_units)
+      ? config.height_units
+      : this._loadHeightUnits();
     this._selected = new Set();
     this._lastMapSignature = "";
     this._rendered = false;
@@ -58,6 +61,41 @@ class NavimowZoneDashboardCard extends HTMLElement {
       const state=btn.closest('.toggleWrap')?.querySelector('.toggleState');
       if(state){state.textContent=this._darkMode?'ON':'OFF';state.classList.toggle('on',this._darkMode);}
     }
+  }
+
+  _loadHeightUnits() {
+    try {
+      const saved = localStorage.getItem("navimow-ha-pro-height-units");
+      return ["auto", "metric", "imperial"].includes(saved) ? saved : "auto";
+    } catch (_error) { return "auto"; }
+  }
+
+  _usesImperialHeight() {
+    if (this._heightUnits === "imperial") return true;
+    if (this._heightUnits === "metric") return false;
+    return this._hass?.config?.unit_system?.length !== "km";
+  }
+
+  _heightFromNative(value) {
+    const mm = Number(value);
+    return Number.isFinite(mm) ? (this._usesImperialHeight() ? mm / 25.4 : mm) : NaN;
+  }
+
+  _heightToNative(value) {
+    const shown = Number(value);
+    return Number.isFinite(shown) ? (this._usesImperialHeight() ? shown * 25.4 : shown) : NaN;
+  }
+
+  _heightUnit() { return this._usesImperialHeight() ? "in" : "mm"; }
+
+  _setHeightUnits(value) {
+    if (!["auto", "metric", "imperial"].includes(value)) return;
+    this._heightUnits = value;
+    try { localStorage.setItem("navimow-ha-pro-height-units", value); }
+    catch (_error) {}
+    this._settingsBuilt = false;
+    this._update();
+    if (this.querySelector("#settingsOverlay")?.classList.contains("open")) this._renderSettings();
   }
 
   set hass(hass) {
@@ -214,7 +252,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
           .shell.dark .settingsOverlay{background:rgba(0,0,0,.62)}
           .shell.dark .resumeOverlay{background:rgba(0,0,0,.62)}
           .shell.dark .mapWrap.fullscreen{background:#0b1014!important}
-          .settingsOverlay{position:absolute;inset:0;z-index:50;background:rgba(17,23,28,.30);backdrop-filter:blur(4px);display:none;align-items:stretch;justify-content:flex-end;overflow:hidden}.settingsOverlay.open{display:flex}.settingsDrawer{position:absolute;top:0;right:0;width:min(90vw,1080px);max-width:calc(100% - 12px);height:100%;box-sizing:border-box;background:#fff;box-shadow:-12px 0 44px rgba(0,0,0,.18);display:flex;flex-direction:column;overflow:hidden}.settingsHeader{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(20px,2.2vh,34px) clamp(20px,2.2vw,34px);border-bottom:1px solid var(--line)}.settingsHeaderTitle{display:flex;align-items:center;gap:12px;font-size:clamp(22px,1.8vw,32px);font-weight:800}.settingsHeaderTitle ha-icon{color:var(--orange);--mdc-icon-size:clamp(28px,2.1vw,38px)}.settingsClose{width:clamp(46px,3.2vw,60px);height:clamp(46px,3.2vw,60px);border:0;border-radius:50%;background:var(--soft);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer}.settingsClose ha-icon{--mdc-icon-size:clamp(24px,1.8vw,30px)}.settingsBody{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;padding:clamp(16px,1.7vh,26px) clamp(18px,2vw,32px) clamp(28px,3vh,48px);box-sizing:border-box;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.settingsIntro{color:var(--muted);font-size:clamp(12px,.95vw,16px);margin:0 0 18px}.settingsGroup{margin-bottom:clamp(18px,2.1vh,30px)}.settingsGroupTitle{font-size:clamp(13px,1vw,17px);font-weight:850;letter-spacing:.45px;text-transform:uppercase;margin:0 0 9px;color:#555e66}.settingsList{border:1px solid var(--line);border-radius:clamp(16px,1.2vw,22px);overflow:hidden;background:#fff}.settingRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:clamp(12px,1.1vw,18px);min-height:clamp(58px,5.8vh,82px);padding:clamp(10px,1vh,15px) clamp(14px,1.25vw,20px);border:0;border-bottom:1px solid var(--line);width:100%;max-width:100%;box-sizing:border-box;background:#fff;color:var(--ink);text-align:left;cursor:pointer;font:inherit;overflow:hidden}.settingRow:last-child{border-bottom:0}.settingRow:active{background:var(--soft)}.settingIcon{width:clamp(38px,2.8vw,50px);height:clamp(38px,2.8vw,50px);border-radius:50%;background:#fff1ea;color:var(--orange);display:flex;align-items:center;justify-content:center}.settingIcon ha-icon{--mdc-icon-size:clamp(21px,1.55vw,27px)}.settingName{font-size:clamp(14px,1.05vw,18px);font-weight:720}.settingEntity{font-size:clamp(9px,.68vw,11px);color:#a0a6ac;margin-top:2px;display:none}.settingValue{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:clamp(12px,.95vw,16px);font-weight:650;max-width:260px;text-align:right}.settingValue .on{color:var(--orange)}.settingValue ha-icon{--mdc-icon-size:clamp(18px,1.3vw,23px);color:#a5abb1}.settingsEmpty{padding:24px;text-align:center;color:var(--muted)}
+          .settingsOverlay{position:absolute;inset:0;z-index:50;background:rgba(17,23,28,.30);backdrop-filter:blur(4px);display:none;align-items:stretch;justify-content:flex-end;overflow:hidden}.settingsOverlay.open{display:flex}.settingsDrawer{position:absolute;top:0;right:0;width:min(90vw,1080px);max-width:calc(100% - 12px);height:100%;box-sizing:border-box;background:#fff;box-shadow:-12px 0 44px rgba(0,0,0,.18);display:flex;flex-direction:column;overflow:hidden}.settingsHeader{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(20px,2.2vh,34px) clamp(20px,2.2vw,34px);border-bottom:1px solid var(--line)}.settingsHeaderTitle{display:flex;align-items:center;gap:12px;font-size:clamp(22px,1.8vw,32px);font-weight:800}.settingsHeaderTitle ha-icon{color:var(--orange);--mdc-icon-size:clamp(28px,2.1vw,38px)}.settingsClose{width:clamp(46px,3.2vw,60px);height:clamp(46px,3.2vw,60px);border:0;border-radius:50%;background:var(--soft);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer}.settingsClose ha-icon{--mdc-icon-size:clamp(24px,1.8vw,30px)}.settingsBody{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;padding:clamp(16px,1.7vh,26px) clamp(18px,2vw,32px) clamp(28px,3vh,48px);box-sizing:border-box;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.settingsIntro{color:var(--muted);font-size:clamp(12px,.95vw,16px);margin:0 0 18px}.settingsGroup{margin-bottom:clamp(18px,2.1vh,30px)}.settingsGroupTitle{font-size:clamp(13px,1vw,17px);font-weight:850;letter-spacing:.45px;text-transform:uppercase;margin:0 0 9px;color:#555e66}.settingsList{border:1px solid var(--line);border-radius:clamp(16px,1.2vw,22px);overflow:hidden;background:#fff}.settingRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:clamp(12px,1.1vw,18px);min-height:clamp(58px,5.8vh,82px);padding:clamp(10px,1vh,15px) clamp(14px,1.25vw,20px);border:0;border-bottom:1px solid var(--line);width:100%;max-width:100%;box-sizing:border-box;background:#fff;color:var(--ink);text-align:left;cursor:pointer;font:inherit;overflow:hidden}.settingRow:last-child{border-bottom:0}.settingRow:active{background:var(--soft)}.settingIcon{width:clamp(38px,2.8vw,50px);height:clamp(38px,2.8vw,50px);border-radius:50%;background:#fff1ea;color:var(--orange);display:flex;align-items:center;justify-content:center}.settingIcon ha-icon{--mdc-icon-size:clamp(21px,1.55vw,27px)}.settingName{font-size:clamp(14px,1.05vw,18px);font-weight:720}.settingEntity{font-size:clamp(9px,.68vw,11px);color:#a0a6ac;margin-top:2px;display:none}.settingValue{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:clamp(12px,.95vw,16px);font-weight:650;max-width:260px;text-align:right}.settingValue .on{color:var(--orange)}.settingValue ha-icon{--mdc-icon-size:clamp(18px,1.3vw,23px);color:#a5abb1}.unitSelect{appearance:none;border:1px solid var(--line);border-radius:999px;background:var(--soft);color:var(--ink);font:inherit;font-weight:750;padding:9px 34px 9px 14px;cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}.settingsEmpty{padding:24px;text-align:center;color:var(--muted)}
           .settingRow.switchRow{cursor:default}.settingRow.numberRow{grid-template-columns:auto minmax(0,1fr);cursor:default;padding-top:clamp(12px,1.2vh,18px);padding-bottom:clamp(12px,1.2vh,18px)}.settingRow.numberRow:active,.settingRow.switchRow:active{background:#fff}.numberSetting{min-width:0}.numberHead{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:clamp(8px,.8vh,12px)}.numberCurrent{font-size:clamp(13px,1vw,17px);font-weight:850;color:var(--orange);white-space:nowrap}.settingSlider{--pct:0%;-webkit-appearance:none;appearance:none;width:100%;height:34px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:none}.settingSlider::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(to right,var(--orange) 0,var(--orange) var(--pct),#d9dde1 var(--pct),#d9dde1 100%)}.settingSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 7px rgba(0,0,0,.22);margin-top:-9px}.settingSlider::-moz-range-track{height:6px;border-radius:999px;background:#d9dde1}.settingSlider::-moz-range-progress{height:6px;border-radius:999px;background:var(--orange)}.settingSlider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid var(--orange);box-shadow:0 2px 7px rgba(0,0,0,.22)}.settingSlider{transition:filter .15s ease}.settingSlider:active{filter:drop-shadow(0 2px 5px rgba(255,100,30,.18))}.settingScale{display:flex;justify-content:space-between;gap:12px;color:#a0a6ac;font-size:clamp(9px,.7vw,12px);margin-top:1px}.toggleWrap{display:flex;align-items:center;gap:clamp(8px,.7vw,12px)}.toggleState{min-width:30px;color:var(--muted);font-size:clamp(11px,.85vw,14px);font-weight:800;text-align:right}.toggleState.on{color:var(--orange)}.toggleSwitch{position:relative;width:clamp(52px,3.8vw,66px);height:clamp(30px,2.35vw,38px);border:0;border-radius:999px;background:#cfd3d7;cursor:pointer;padding:0;transition:background .18s ease,box-shadow .18s ease;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}.toggleSwitch.on{background:var(--orange);box-shadow:0 3px 12px rgba(255,100,30,.22)}.toggleKnob{position:absolute;top:3px;left:3px;width:calc(100% / 2 - 3px);height:calc(100% - 6px);border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.25);transition:transform .18s ease}.toggleSwitch.on .toggleKnob{transform:translateX(100%)}
           .schedulerOverlay{position:absolute;inset:0;z-index:70;background:rgba(18,22,26,.42);backdrop-filter:blur(7px);display:none;align-items:center;justify-content:center;padding:clamp(16px,2.2vw,42px);box-sizing:border-box;overflow:hidden}.schedulerOverlay.open{display:flex}.schedulerDrawer{position:relative;width:min(92vw,1180px);height:min(88vh,1500px);max-width:100%;max-height:100%;background:#fff;border-radius:clamp(24px,2vw,38px);box-shadow:0 24px 80px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;animation:schedulePop .16s ease-out}.schedulerHeader{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:clamp(18px,2vh,30px) clamp(20px,2.2vw,34px);border-bottom:1px solid var(--line);background:#fff}.schedulerHeaderTitle{display:flex;align-items:center;gap:12px;font-size:clamp(23px,1.9vw,34px);font-weight:850;color:var(--ink)}.schedulerHeaderTitle ha-icon{color:var(--orange);--mdc-icon-size:clamp(29px,2.1vw,39px)}.schedulerClose{position:relative;z-index:5;width:clamp(50px,3.5vw,64px);height:clamp(50px,3.5vw,64px);border:0;border-radius:50%;background:var(--orange);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;box-shadow:0 4px 14px rgba(255,100,30,.24)}.schedulerClose ha-icon{pointer-events:none;--mdc-icon-size:clamp(26px,1.9vw,32px)}.schedulerClose:active{transform:scale(.95);background:var(--orange-dark)}.schedulerBody{flex:1 1 auto;min-height:0;overflow:auto;background:#f5f6f7;padding:clamp(12px,1.3vw,22px);box-sizing:border-box;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}.schedulerHost{min-height:100%;max-width:100%;box-sizing:border-box}.schedulerMissing{margin:30px;padding:24px;background:#fff;border:1px solid var(--line);border-radius:20px;text-align:center;color:var(--muted)}@keyframes schedulePop{from{opacity:0;transform:scale(.975) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
           /* v0.6.26 proportional responsive layout */
@@ -411,8 +449,8 @@ class NavimowZoneDashboardCard extends HTMLElement {
     this.querySelectorAll('.modeChoice').forEach(btn=>btn.classList.toggle('active',btn.dataset.mode===wm?.state));
     const h=this._entity(this.config.cutting_height);
     if(h){
-      const unit=h.attributes.unit_of_measurement||'';
-      const actual=Number(h.state);
+      const unit=this._heightUnit();
+      const actual=this._heightFromNative(h.state);
       const pending=this._pendingSettings.get(this.config.cutting_height);
       let value=actual;
       if(pending?.type==='number'){
@@ -430,10 +468,11 @@ class NavimowZoneDashboardCard extends HTMLElement {
       }
       this.querySelector('#height').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
       const slider=this.querySelector('#heightSlider');
-      const min=Number(h.attributes.min), max=Number(h.attributes.max);
+      const nativeMin=Number(h.attributes.min), nativeMax=Number(h.attributes.max), nativeStep=Number(h.attributes.step);
+      const min=this._heightFromNative(nativeMin), max=this._heightFromNative(nativeMax);
       if(Number.isFinite(min)) slider.min=String(min);
       if(Number.isFinite(max)) slider.max=String(max);
-      slider.step='0.05';
+      slider.step=String(Number.isFinite(nativeStep)&&nativeStep>0 ? nativeStep/(this._usesImperialHeight()?25.4:1) : (this._usesImperialHeight()?0.2:5));
       if(Number.isFinite(value) && slider.dataset.dragging!=='1') slider.value=String(value);
       this._paintSettingSlider(slider);
       this.querySelector('#heightValue').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
@@ -876,11 +915,13 @@ class NavimowZoneDashboardCard extends HTMLElement {
   _renderSettings(){
     const root=this.querySelector('#settingsContent'); if(!root) return;
     const entities=this._configurationEntities();
-    const appearanceHtml=`<section class="settingsGroup"><h3 class="settingsGroupTitle">Appearance</h3><div class="settingsList"><div class="settingRow switchRow"><span class="settingIcon"><ha-icon icon="mdi:theme-light-dark"></ha-icon></span><span><span class="settingName">Dark mode</span><span class="settingEntity">Saved on this browser</span></span><span class="toggleWrap"><span class="toggleState ${this._darkMode?'on':''}">${this._darkMode?'ON':'OFF'}</span><button class="toggleSwitch ${this._darkMode?'on':''}" type="button" data-dark-mode aria-pressed="${this._darkMode?'true':'false'}" aria-label="Toggle dark mode"><span class="toggleKnob"></span></button></span></div></div></section>`;
+    const appearanceHtml=`<section class="settingsGroup"><h3 class="settingsGroupTitle">Appearance</h3><div class="settingsList"><div class="settingRow switchRow"><span class="settingIcon"><ha-icon icon="mdi:theme-light-dark"></ha-icon></span><span><span class="settingName">Dark mode</span><span class="settingEntity">Saved on this browser</span></span><span class="toggleWrap"><span class="toggleState ${this._darkMode?'on':''}">${this._darkMode?'ON':'OFF'}</span><button class="toggleSwitch ${this._darkMode?'on':''}" type="button" data-dark-mode aria-pressed="${this._darkMode?'true':'false'}" aria-label="Toggle dark mode"><span class="toggleKnob"></span></button></span></div><div class="settingRow switchRow"><span class="settingIcon"><ha-icon icon="mdi:ruler"></ha-icon></span><span><span class="settingName">Measurement units</span><span class="settingEntity">Automatic follows Home Assistant</span></span><select class="unitSelect" data-height-units aria-label="Measurement units"><option value="auto" ${this._heightUnits==='auto'?'selected':''}>Automatic</option><option value="metric" ${this._heightUnits==='metric'?'selected':''}>Metric</option><option value="imperial" ${this._heightUnits==='imperial'?'selected':''}>Imperial</option></select></div></div></section>`;
     if(!entities.length){
       root.innerHTML=appearanceHtml+'<div class="settingsEmpty">No mower configuration entities were found.</div>';
       this._settingsBuilt=true;
       root.querySelector('[data-dark-mode]')?.addEventListener('click',()=>this._setDarkMode(!this._darkMode));
+    root.querySelector('[data-height-units]')?.addEventListener('change',e=>this._setHeightUnits(e.target.value));
+      root.querySelector('[data-height-units]')?.addEventListener('change',e=>this._setHeightUnits(e.target.value));
       return;
     }
     const order=['Mowing','Weather & environment','Safety & navigation','Battery & power','Lighting & sound','Zone names'];
@@ -1028,17 +1069,18 @@ class NavimowZoneDashboardCard extends HTMLElement {
   }
   _previewHeight(raw){
     const n=Number(raw); if(!Number.isFinite(n)) return;
-    const h=this._entity(this.config.cutting_height); const unit=h?.attributes?.unit_of_measurement||'';
+    const unit=this._heightUnit();
     this.querySelector('#heightValue').textContent=`${n.toFixed(1)} ${unit}`;
     this.querySelector('#height').textContent=`${n.toFixed(1)} ${unit}`;
   }
   async _setHeight(raw){
     const n=Number(raw); if(!Number.isFinite(n)) return;
     const target=Number(n.toFixed(1));
+    const nativeTarget=this._heightToNative(n);
     this._pendingSettings.set(this.config.cutting_height,{type:'number',value:target,expires:Date.now()+45000});
     this._previewHeight(target);
     const slider=this.querySelector('#heightSlider'); if(slider){slider.value=String(target);this._paintSettingSlider(slider);}
-    await this._service('number','set_value',{entity_id:this.config.cutting_height,value:target});
+    await this._service('number','set_value',{entity_id:this.config.cutting_height,value:nativeTarget});
   }
 
   async _mow(){
