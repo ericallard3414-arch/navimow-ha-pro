@@ -101,13 +101,17 @@ class NavimowZoneDashboardCard extends HTMLElement {
 
   _heightFromNative(value, entityOrUnit) {
     const mm = this._heightNativeToMm(value, entityOrUnit);
-    return Number.isFinite(mm) ? (this._usesImperialHeight() ? mm / 25.4 : mm) : NaN;
+    // Navimow labels each 5 mm position as a 0.2 in step (25 mm per
+    // displayed inch), so 90 mm is shown as 3.6 in in the official app.
+    return Number.isFinite(mm) ? (this._usesImperialHeight() ? mm / 25 : mm) : NaN;
   }
 
   _heightToNative(value, entityOrUnit) {
     const shown = Number(value);
     if (!Number.isFinite(shown)) return NaN;
-    const mm = this._usesImperialHeight() ? shown * 25.4 : shown;
+    // Reverse the official app's nominal inch labels back onto the exact
+    // 5 mm mower grid before converting to Home Assistant's native unit.
+    const mm = this._usesImperialHeight() ? shown * 25 : shown;
     return this._heightMmToNative(mm, entityOrUnit);
   }
 
