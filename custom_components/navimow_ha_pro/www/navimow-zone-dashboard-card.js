@@ -76,14 +76,40 @@ class NavimowZoneDashboardCard extends HTMLElement {
     return this._hass?.config?.unit_system?.length !== "km";
   }
 
-  _heightFromNative(value) {
-    const mm = Number(value);
+  _heightEntityUsesImperial(entityOrUnit) {
+    const unit = typeof entityOrUnit === "string"
+      ? entityOrUnit
+      : entityOrUnit?.attributes?.unit_of_measurement;
+    return /^(in|inch|inches)$/i.test(String(unit || "").trim());
+  }
+
+  _heightNativeToMm(value, entityOrUnit) {
+    const native = Number(value);
+    if (!Number.isFinite(native)) return NaN;
+    return this._heightEntityUsesImperial(entityOrUnit) ? native * 25.4 : native;
+  }
+
+  _heightMmToNative(valueMm, entityOrUnit) {
+    const mm = Number(valueMm);
+    if (!Number.isFinite(mm)) return NaN;
+    return this._heightEntityUsesImperial(entityOrUnit) ? mm / 25.4 : mm;
+  }
+
+  _heightFromNative(value, entityOrUnit) {
+    const mm = this._heightNativeToMm(value, entityOrUnit);
     return Number.isFinite(mm) ? (this._usesImperialHeight() ? mm / 25.4 : mm) : NaN;
   }
 
-  _heightToNative(value) {
+  _heightToNative(value, entityOrUnit) {
     const shown = Number(value);
-    return Number.isFinite(shown) ? (this._usesImperialHeight() ? shown * 25.4 : shown) : NaN;
+    if (!Number.isFinite(shown)) return NaN;
+    const mm = this._usesImperialHeight() ? shown * 25.4 : shown;
+    return this._heightMmToNative(mm, entityOrUnit);
+  }
+
+  _heightStepFromNative(value, entityOrUnit) {
+    const mm = this._heightNativeToMm(value, entityOrUnit);
+    return Number.isFinite(mm) ? (this._usesImperialHeight() ? mm / 25.4 : mm) : NaN;
   }
 
   _heightUnit() { return this._usesImperialHeight() ? "in" : "mm"; }
@@ -451,7 +477,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
     const h=this._entity(this.config.cutting_height);
     if(h){
       const unit=this._heightUnit();
-      const actual=this._heightFromNative(h.state);
+      const actual=this._heightFromNative(h.state,h);
       const pending=this._pendingSettings.get(this.config.cutting_height);
       let value=actual;
       if(pending?.type==='number'){
@@ -470,10 +496,10 @@ class NavimowZoneDashboardCard extends HTMLElement {
       this.querySelector('#height').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
       const slider=this.querySelector('#heightSlider');
       const nativeMin=Number(h.attributes.min), nativeMax=Number(h.attributes.max), nativeStep=Number(h.attributes.step);
-      const min=this._heightFromNative(nativeMin), max=this._heightFromNative(nativeMax);
+      const min=this._heightFromNative(nativeMin,h), max=this._heightFromNative(nativeMax,h);
       if(Number.isFinite(min)) slider.min=String(min);
       if(Number.isFinite(max)) slider.max=String(max);
-      slider.step=String(Number.isFinite(nativeStep)&&nativeStep>0 ? nativeStep/(this._usesImperialHeight()?25.4:1) : (this._usesImperialHeight()?0.2:5));
+      slider.step=String(Number.isFinite(nativeStep)&&nativeStep>0 ? this._heightStepFromNative(nativeStep,h) : (this._usesImperialHeight()?0.2:5));
       if(Number.isFinite(value) && slider.dataset.dragging!=='1') slider.value=String(value);
       this._paintSettingSlider(slider);
       this.querySelector('#heightValue').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
@@ -940,12 +966,12 @@ class NavimowZoneDashboardCard extends HTMLElement {
         const isCutHeight=e.entity_id===this.config.cutting_height || e.entity_id.includes('cutting_height');
         const nativeUnit=e.attributes.unit_of_measurement||'';
         const rawNative=Number(e.state);
-        const raw=isCutHeight?this._heightFromNative(rawNative):rawNative;
+        const raw=isCutHeight?this._heightFromNative(rawNative,e):rawNative;
         const value=Number.isFinite(raw)?raw:0;
         const aminNative=Number(e.attributes.min), amaxNative=Number(e.attributes.max), astepNative=Number(e.attributes.step);
-        const amin=isCutHeight?this._heightFromNative(aminNative):aminNative;
-        const amax=isCutHeight?this._heightFromNative(amaxNative):amaxNative;
-        const astep=isCutHeight&&Number.isFinite(astepNative)?astepNative/(this._usesImperialHeight()?25.4:1):astepNative;
+        const amin=isCutHeight?this._heightFromNative(aminNative,e):aminNative;
+        const amax=isCutHeight?this._heightFromNative(amaxNative,e):amaxNative;
+        const astep=isCutHeight&&Number.isFinite(astepNative)?this._heightStepFromNative(astepNative,e):astepNative;
         const min=Number.isFinite(amin)?amin:0; const max=Number.isFinite(amax)?amax:100;
         const backendStep=Number.isFinite(astep)&&astep>0?astep:1;
         const unit=isCutHeight?this._heightUnit():nativeUnit;
@@ -990,13 +1016,13 @@ class NavimowZoneDashboardCard extends HTMLElement {
         let n=Number(slider.value); if(!Number.isFinite(n)) return;
         const entity=this._entity(entityId); const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height');
         const nativeMin=Number(entity?.attributes?.min), nativeMax=Number(entity?.attributes?.max), astep=Number(entity?.attributes?.step);
-        const amin=isCutHeight?this._heightFromNative(nativeMin):nativeMin, amax=isCutHeight?this._heightFromNative(nativeMax):nativeMax;
+        const amin=isCutHeight?this._heightFromNative(nativeMin,entity):nativeMin, amax=isCutHeight?this._heightFromNative(nativeMax,entity):nativeMax;
         const unit=isCutHeight?this._heightUnit():(entity?.attributes?.unit_of_measurement||''); const isWholePercent=(unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(entityId) || /charging limit|return-to-dock battery/i.test(this._settingLabel(entity||{}))));
         if(isWholePercent){n=Math.round(n);}
         else if(!isCutHeight && Number.isFinite(astep)&&astep>0 && Number.isFinite(amin)){n=amin+Math.round((n-amin)/astep)*astep;}
         if(Number.isFinite(amin)) n=Math.max(amin,n); if(Number.isFinite(amax)) n=Math.min(amax,n);
         const target=Number(n.toFixed(3));
-        const serviceTarget=isCutHeight?this._heightToNative(n):target;
+        const serviceTarget=isCutHeight?this._heightToNative(n,entity):target;
         this._pendingSettings.set(entityId,{type:'number',value:target,expires:Date.now()+45000});
         slider.value=String(target); preview();
         try{await this._service('number','set_value',{entity_id:entityId,value:serviceTarget});}
@@ -1032,7 +1058,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
     root.querySelectorAll('.settingSlider[data-number]').forEach(slider=>{
       const entityId=slider.dataset.number; const e=this._entity(entityId); if(!e) return;
       const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height');
-      const actual=isCutHeight?this._heightFromNative(e.state):Number(e.state); if(!Number.isFinite(actual)) return;
+      const actual=isCutHeight?this._heightFromNative(e.state,e):Number(e.state); if(!Number.isFinite(actual)) return;
       const pending=this._pendingSettings.get(entityId);
       let value=actual;
       if(pending?.type==='number'){
