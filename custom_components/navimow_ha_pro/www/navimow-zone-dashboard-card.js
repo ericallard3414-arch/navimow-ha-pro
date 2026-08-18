@@ -121,7 +121,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
     const mm = this._heightEntityUsesImperial(entityOrUnit)
       ? Math.max(1, Math.round(native * 25.4))
       : native;
-    return this._usesImperialHeight() ? mm / 25.4 : mm;
+    return this._usesImperialHeight() ? mm / 25 : mm;
   }
 
   _heightUnit() { return this._usesImperialHeight() ? "in" : "mm"; }
