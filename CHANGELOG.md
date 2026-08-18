@@ -1,3 +1,11 @@
+## 0.7.20
+
+- Refresh mutable mower settings every coordinator cycle so changes made in the Navimow app propagate back to Home Assistant promptly.
+- Prevent a successfully selected cutting height from reverting to an older cached value after about one minute.
+- Extend the optimistic settings guard from 45 to 180 seconds so Navimow's cloud has time to acknowledge a write.
+- Keep heavier maintenance, device-information and planning requests on the existing slow refresh cycle.
+- Preserve the confirmed model-specific i-series and X-series command encodings.
+
 ## 0.7.19
 
 - Match the official Navimow imperial cutting-height labels: each 5 mm position is displayed as a 0.2 in step, including 90 mm as 3.6 in.
