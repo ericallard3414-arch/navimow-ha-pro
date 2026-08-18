@@ -564,6 +564,33 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         set_list = raw.get("set_list") or {}
         device_info = raw.get("device_info") or {}
 
+        # X-series mowers report the robot-side height as hexadecimal text
+        # (for example "41" means 0x41 = 65 mm). Other models/cloud snapshots
+        # use ordinary decimal values. Resolve that ambiguity against the
+        # mower's authoritative supported-height list instead of guessing.
+        raw_height_values = self._private_find(device_info, "mowingHeightList")
+        cutting_height_values = (
+            sorted({
+                height
+                for value in raw_height_values
+                if (height := self._integer(value)) is not None
+            })
+            if isinstance(raw_height_values, list)
+            else []
+        )
+        raw_cutting_height = self._private_find(set_list, "height")
+        cutting_height = self._integer(raw_cutting_height)
+        if isinstance(raw_cutting_height, str) and cutting_height_values:
+            try:
+                hex_height = int(raw_cutting_height.strip(), 16)
+            except ValueError:
+                hex_height = None
+            if (
+                cutting_height not in cutting_height_values
+                and hex_height in cutting_height_values
+            ):
+                cutting_height = hex_height
+
         def boolean(value: Any) -> bool | None:
             if value is None:
                 return None
@@ -604,7 +631,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "return_battery_level": self._integer(self._private_find(set_list, "returnBatteryLevel", "return_battery_level")),
             "charging_limit": self._integer(self._private_find(set_list, "chargingLimit", "charging_limit")),
             "rain_delay_wire": self._integer(self._private_find(set_list, "delayedPileSet", "delayed_pile_set")),
-            "cutting_height": self._integer(self._private_find(set_list, "height")),
+            "cutting_height": cutting_height,
             "night_light_level": self._integer(self._private_find(set_list, "nightLightLevel", "night_light_level")),
             "weather_sensitivity": self._integer(self._private_find(set_list, "weatherSensitivity", "weather_sensitivity")),
             # Captured from the official app: Precision/Standard/Efficient is stored
@@ -631,12 +658,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "charging_limit_min": self._integer(self._private_find(battery_config, "chargingLimitMin")) or 50,
             "charging_limit_max": self._integer(self._private_find(battery_config, "chargingLimitMax")) or 100,
         }
-        height_values = self._private_find(device_info, "mowingHeightList")
-        limits["cutting_height_values"] = (
-            sorted({height for value in height_values if (height := self._integer(value)) is not None})
-            if isinstance(height_values, list)
-            else []
-        )
+        limits["cutting_height_values"] = cutting_height_values
         def life(component: Any) -> dict[str, Any]:
             if not isinstance(component, dict):
                 return {"percentage": None}

@@ -1,3 +1,9 @@
+## 0.7.12
+
+- Correctly decode hexadecimal cutting-height values reported by X-series mowers.
+- Resolve ambiguous height strings against each mower's advertised supported-height list, preserving compatibility with models that report decimal values.
+- Prevent a selected height such as 2.6 in (65 mm, reported as `41`) from appearing to reset to about 1.6 in after a refresh or Home Assistant restart.
+
 ## 0.7.11
 
 - Fix Resume in the dashboard card by calling Home Assistant's supported `lawn_mower.start_mowing` action.
