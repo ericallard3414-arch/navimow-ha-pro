@@ -137,10 +137,12 @@ Open the card's **Settings → Appearance** section to configure:
   millimetres; Imperial displays it in inches.
 
 Unit conversion affects only what the card displays. Commands continue to use the
-mower's native supported millimetre values. Navimow HA Pro snaps converted values to the
-height list advertised by the mower and uses the correct model-family protocol: i-series
-uses numeric robot commands followed by decimal-string cloud persistence, while X-series
-retains its hexadecimal encoding.
+mower's exact supported positions. The dashboard reads the height list advertised by each
+mower instead of assuming one universal slider grid. i-series models use their 5 mm metric /
+0.2 in display steps. X-series quarter-inch models such as the X430 use 0.75–4.00 in in
+0.25 in steps, or their rounded metric labels (19–101 mm). Navimow HA Pro also preserves
+the correct model-family command protocol: i-series uses numeric robot commands followed
+by decimal-string cloud persistence, while X-series retains its hexadecimal encoding.
 
 
 | Configuration drawer | Mowing schedule |
