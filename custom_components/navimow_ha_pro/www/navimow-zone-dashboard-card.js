@@ -1215,13 +1215,15 @@ class NavimowZoneDashboardCard extends HTMLElement {
   _previewHeight(raw){
     const n=Number(raw); if(!Number.isFinite(n)) return;
     const unit=this._heightUnit();
-    this.querySelector('#heightValue').textContent=`${n.toFixed(1)} ${unit}`;
-    this.querySelector('#height').textContent=`${n.toFixed(1)} ${unit}`;
+    const entity=this._entity(this.config.cutting_height);
+    const shown=this._formatHeight(n,entity);
+    this.querySelector('#heightValue').textContent=`${shown} ${unit}`;
+    this.querySelector('#height').textContent=`${shown} ${unit}`;
   }
   async _setHeight(raw){
     const n=Number(raw); if(!Number.isFinite(n)) return;
-    const target=Number(n.toFixed(1));
     const entity=this._entity(this.config.cutting_height);
+    const target=Number(n.toFixed(this._heightPrecision(entity)));
     const nativeTarget=this._heightToNative(n,entity);
     this._pendingSettings.set(this.config.cutting_height,{type:'number',value:target,expires:Date.now()+45000});
     this._previewHeight(target);
