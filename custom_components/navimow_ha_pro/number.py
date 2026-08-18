@@ -56,12 +56,33 @@ class NavimowSettingNumber(CoordinatorEntity[NavimowCoordinator], NumberEntity):
                 for value in (limits.get("cutting_height_values") or [50, 100])
             })
             self._height_values = heights
-            model = str(device.model or "").strip().lower()
-            self._height_family = "quarter_inch" if model.startswith("x") else "five_mm"
+            # Detect the display family from the mower-advertised positions,
+            # never from its model name. Regional variants of the same model
+            # can expose different cutting decks and grids.
+            quarter_positions = [
+                round((value / 25.4) * 4)
+                for value in heights
+            ]
+            is_quarter_inch = (
+                len(heights) >= 3
+                and all(
+                    abs(value - (position * 25.4 / 4)) <= 0.55
+                    for value, position in zip(heights, quarter_positions)
+                )
+                and all(
+                    current - previous == 1
+                    for previous, current in zip(
+                        quarter_positions, quarter_positions[1:]
+                    )
+                )
+            )
+            self._height_family = (
+                "quarter_inch" if is_quarter_inch else "metric_discrete"
+            )
             self._attr_native_min_value, self._attr_native_max_value = min(heights), max(heights)
             differences = [b - a for a, b in zip(heights, heights[1:]) if b > a]
-            # X-series metric labels are rounded quarter-inch positions and
-            # therefore alternate between 6 and 7 mm. A 1 mm HA step permits
+            # Rounded quarter-inch metric labels alternate between 6 and 7 mm.
+            # A 1 mm HA step permits
             # every advertised value; the card uses the exact discrete list.
             self._attr_native_step = (
                 differences[0]
