@@ -412,10 +412,14 @@ class NavimowZoneDashboardCard extends HTMLElement {
     heightSlider.addEventListener('pointerdown',()=>{heightSlider.dataset.dragging='1';});
     heightSlider.addEventListener('input',()=>{
       heightSlider.dataset.dragging='1';
-      this._previewHeight(heightSlider.value);
+      this._previewHeight(this._heightSliderDisplayedValue(heightSlider));
       this._paintSettingSlider(heightSlider);
     });
-    heightSlider.addEventListener('change',()=>{heightSlider.dataset.dragging='0';this._setHeight(heightSlider.value);});
+    heightSlider.addEventListener('change',()=>{
+      const selected=this._heightSliderDisplayedValue(heightSlider);
+      heightSlider.dataset.dragging='0';
+      this._setHeight(selected);
+    });
     heightSlider.addEventListener('pointerup',()=>{heightSlider.dataset.dragging='0';});
     const modeMetric=this.querySelector('#modeMetric');
     modeMetric.addEventListener('click',()=>this._toggleModePanel());
@@ -505,10 +509,26 @@ class NavimowZoneDashboardCard extends HTMLElement {
       const slider=this.querySelector('#heightSlider');
       const nativeMin=Number(h.attributes.min), nativeMax=Number(h.attributes.max), nativeStep=Number(h.attributes.step);
       const min=this._heightFromNative(nativeMin,h), max=this._heightFromNative(nativeMax,h);
-      if(Number.isFinite(min)) slider.min=String(min);
-      if(Number.isFinite(max)) slider.max=String(max);
-      slider.step=String(Number.isFinite(nativeStep)&&nativeStep>0 ? this._heightStepFromNative(nativeStep,h) : (this._usesImperialHeight()?0.2:5));
-      if(Number.isFinite(value) && slider.dataset.dragging!=='1') slider.value=String(value);
+      const displayStep=Number.isFinite(nativeStep)&&nativeStep>0
+        ? this._heightStepFromNative(nativeStep,h)
+        : (this._usesImperialHeight()?0.2:5);
+      const choices=[];
+      if(Number.isFinite(min)&&Number.isFinite(max)&&Number.isFinite(displayStep)&&displayStep>0){
+        const count=Math.max(1,Math.round((max-min)/displayStep));
+        for(let index=0;index<=count;index+=1){
+          choices.push(Number((index===count?max:min+(index*displayStep)).toFixed(4)));
+        }
+      }
+      if(!choices.length&&Number.isFinite(value)) choices.push(value);
+      slider.dataset.heightValues=choices.join(',');
+      slider.min='0';
+      slider.max=String(Math.max(0,choices.length-1));
+      slider.step='1';
+      if(Number.isFinite(value)&&slider.dataset.dragging!=='1'){
+        let closest=0;
+        choices.forEach((choice,index)=>{if(Math.abs(choice-value)<Math.abs(choices[closest]-value))closest=index;});
+        slider.value=String(closest);
+      }
       this._paintSettingSlider(slider);
       this.querySelector('#heightValue').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
       this.querySelector('#heightMin').textContent=`${Number.isFinite(min)?min.toFixed(1):'1.0'} ${unit}`;
@@ -1110,6 +1130,11 @@ class NavimowZoneDashboardCard extends HTMLElement {
     const panel=this.querySelector('#heightPanel');
     panel.classList.toggle('open');
   }
+  _heightSliderDisplayedValue(slider){
+    const values=String(slider?.dataset?.heightValues||'').split(',').map(Number).filter(Number.isFinite);
+    const index=Math.max(0,Math.min(values.length-1,Math.round(Number(slider?.value)||0)));
+    return values[index] ?? Number(slider?.value);
+  }
   _previewHeight(raw){
     const n=Number(raw); if(!Number.isFinite(n)) return;
     const unit=this._heightUnit();
@@ -1119,10 +1144,18 @@ class NavimowZoneDashboardCard extends HTMLElement {
   async _setHeight(raw){
     const n=Number(raw); if(!Number.isFinite(n)) return;
     const target=Number(n.toFixed(1));
-    const nativeTarget=this._heightToNative(n);
+    const entity=this._entity(this.config.cutting_height);
+    const nativeTarget=this._heightToNative(n,entity);
     this._pendingSettings.set(this.config.cutting_height,{type:'number',value:target,expires:Date.now()+45000});
     this._previewHeight(target);
-    const slider=this.querySelector('#heightSlider'); if(slider){slider.value=String(target);this._paintSettingSlider(slider);}
+    const slider=this.querySelector('#heightSlider');
+    if(slider){
+      const values=String(slider.dataset.heightValues||'').split(',').map(Number).filter(Number.isFinite);
+      let closest=0;
+      values.forEach((choice,index)=>{if(Math.abs(choice-target)<Math.abs(values[closest]-target))closest=index;});
+      slider.value=String(closest);
+      this._paintSettingSlider(slider);
+    }
     await this._service('number','set_value',{entity_id:this.config.cutting_height,value:nativeTarget});
   }
 
