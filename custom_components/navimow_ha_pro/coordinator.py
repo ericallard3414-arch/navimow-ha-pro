@@ -634,6 +634,29 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(raw_height_values, list)
             else []
         )
+        quarter_positions = [
+            round((height / 25.4) * 4)
+            for height in cutting_height_values
+        ]
+        cutting_height_family = (
+            "quarter_inch"
+            if (
+                len(cutting_height_values) >= 3
+                and all(
+                    abs(height - (position * 25.4 / 4)) <= 1.0
+                    for height, position in zip(
+                        cutting_height_values, quarter_positions
+                    )
+                )
+                and all(
+                    current - previous == 1
+                    for previous, current in zip(
+                        quarter_positions, quarter_positions[1:]
+                    )
+                )
+            )
+            else "metric_discrete"
+        )
         raw_cutting_height = self._private_find(set_list, "height")
         cutting_height = self._integer(raw_cutting_height)
         if isinstance(raw_cutting_height, str) and cutting_height_values:
@@ -726,6 +749,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "charging_limit_max": self._integer(self._private_find(battery_config, "chargingLimitMax")) or 100,
         }
         limits["cutting_height_values"] = cutting_height_values
+        limits["cutting_height_family"] = cutting_height_family
         def life(component: Any) -> dict[str, Any]:
             if not isinstance(component, dict):
                 return {"percentage": None}
@@ -1119,25 +1143,20 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if valid_heights:
                 wire = min(valid_heights, key=lambda height: abs(height - wire))
 
-            # The official app uses different wire formats by mower family.
-            #
-            # i-series (confirmed with an i215):
-            #   /vehicle/set/send          {"height": 65}
-            #   /vehicle/set/save-set-data {"height": "65"}
-            #
-            # The official app uses different wire formats by mower family.
-            #
-            # i-series (confirmed with an i215):
-            #   /vehicle/set/send          {"height": 65}
-            #   /vehicle/set/save-set-data {"height": "65"}
-            #
-            # X-series keeps the hexadecimal encoding used by its settings
-            # protocol. Do not share the i-series conversion with X models.
+            # The robot command for confirmed i-series mowers and
+            # telemetry-detected quarter-inch decks is a numeric millimetre
+            # value. Sending hexadecimal text to the X430 turns 101 mm into
+            # decimal "65", so a requested 4.00 in falls back to about 2.6 in.
             model = str(getattr(self.device, "model", None) or "").strip().lower()
             is_i_series = bool(re.match(r"^i\d", model))
-            if is_i_series:
+            height_family = (
+                (self._private_telemetry.get("limits") or {}).get(
+                    "cutting_height_family"
+                )
+            )
+            if is_i_series or height_family == "quarter_inch":
                 robot_value = wire
-                cloud_value: Any = str(wire)
+                cloud_value: Any = str(wire) if is_i_series else wire
             else:
                 robot_value = f"{wire:02X}"
                 cloud_value = f"{wire:02X}" if cloud_hex else wire

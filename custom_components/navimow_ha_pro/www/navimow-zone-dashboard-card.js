@@ -585,7 +585,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
         slider.value=String(closest);
       }
       this._paintSettingSlider(slider);
-      this.querySelector('#heightValue').textContent=Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:`${h.state} ${unit}`;
+      this.querySelector('#heightValue').textContent=Number.isFinite(value)?`${this._formatHeight(value,h)} ${unit}`:`${h.state} ${unit}`;
       this.querySelector('#heightMin').textContent=`${Number.isFinite(min)?this._formatHeight(min,h):'—'} ${unit}`;
       this.querySelector('#heightMax').textContent=`${Number.isFinite(max)?this._formatHeight(max,h):'—'} ${unit}`;
     }else{

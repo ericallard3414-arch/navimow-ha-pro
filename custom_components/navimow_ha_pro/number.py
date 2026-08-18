@@ -56,28 +56,11 @@ class NavimowSettingNumber(CoordinatorEntity[NavimowCoordinator], NumberEntity):
                 for value in (limits.get("cutting_height_values") or [50, 100])
             })
             self._height_values = heights
-            # Detect the display family from the mower-advertised positions,
-            # never from its model name. Regional variants of the same model
-            # can expose different cutting decks and grids.
-            quarter_positions = [
-                round((value / 25.4) * 4)
-                for value in heights
-            ]
-            is_quarter_inch = (
-                len(heights) >= 3
-                and all(
-                    abs(value - (position * 25.4 / 4)) <= 1.0
-                    for value, position in zip(heights, quarter_positions)
-                )
-                and all(
-                    current - previous == 1
-                    for previous, current in zip(
-                        quarter_positions, quarter_positions[1:]
-                    )
-                )
-            )
-            self._height_family = (
-                "quarter_inch" if is_quarter_inch else "metric_discrete"
+            # The coordinator detects the display/write family from the
+            # mower-advertised positions so the entity and command path always
+            # use the same telemetry-driven decision.
+            self._height_family = str(
+                limits.get("cutting_height_family") or "metric_discrete"
             )
             self._attr_native_min_value, self._attr_native_max_value = min(heights), max(heights)
             differences = [b - a for a, b in zip(heights, heights[1:]) if b > a]

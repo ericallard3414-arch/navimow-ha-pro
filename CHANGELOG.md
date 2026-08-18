@@ -1,3 +1,13 @@
+## 0.7.23
+
+- Send telemetry-detected quarter-inch heights to the mower as numeric millimetres.
+- Fix X430 0.75 in being transmitted as hexadecimal `13` and interpreted as decimal 13 mm.
+- Fix X430 4.00 in being transmitted as hexadecimal `65` and interpreted as decimal 65 mm / approximately 2.6 in.
+- Keep X430 commands bounded and snapped to its advertised 19–101 mm / 0.75–4.00 in positions.
+- Share one telemetry-driven height-family decision between the entity, card and command writer.
+- Preserve two-decimal quarter-inch labels throughout the dashboard.
+- Bump the bundled frontend cache version.
+
 ## 0.7.22
 
 - Make cutting-height controls use the exact discrete height list advertised by each mower.
