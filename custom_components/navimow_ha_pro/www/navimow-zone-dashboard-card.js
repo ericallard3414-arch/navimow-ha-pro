@@ -1054,16 +1054,27 @@ class NavimowZoneDashboardCard extends HTMLElement {
         const aminNative=Number(e.attributes.min), amaxNative=Number(e.attributes.max), astepNative=Number(e.attributes.step);
         const amin=isCutHeight?this._heightFromNative(aminNative,e):aminNative;
         const amax=isCutHeight?this._heightFromNative(amaxNative,e):amaxNative;
-        const astep=isCutHeight?(this._usesImperialHeight()?5/25.4:5):astepNative;
-        const min=Number.isFinite(amin)?amin:0; const max=Number.isFinite(amax)?amax:100;
-        const backendStep=Number.isFinite(astep)&&astep>0?astep:1;
         const unit=isCutHeight?this._heightUnit():nativeUnit;
         const isWholePercent=(unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(e.entity_id) || /charging limit|return-to-dock battery/i.test(this._settingLabel(e))));
-        const span=Math.max(max-min,1);
-        const visualStep=isWholePercent?1:(isCutHeight?backendStep:Math.max(span/1000,Math.min(backendStep/10,0.1)));
-        const shown=Number.isFinite(raw)?`${raw.toLocaleString(undefined,{maximumFractionDigits:isCutHeight?1:2})}${unit?` ${this._escape(unit)}`:''}`:'—';
-        const pct=max>min?Math.max(0,Math.min(100,(value-min)/(max-min)*100)):0;
-        return `<div class="settingRow numberRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span class="numberSetting"><span class="numberHead"><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="numberCurrent" data-number-value="${eid}">${shown}</span></span><input class="settingSlider" style="--pct:${pct}%" type="range" data-number="${eid}" min="${min}" max="${max}" step="${visualStep}" value="${value}" aria-label="${label}"><span class="settingScale"><span>${min.toLocaleString(undefined,{maximumFractionDigits:isCutHeight?1:2})}${unit?` ${this._escape(unit)}`:''}</span><span>${max.toLocaleString(undefined,{maximumFractionDigits:isCutHeight?1:2})}${unit?` ${this._escape(unit)}`:''}</span></span></span></div>`;
+        let min=Number.isFinite(amin)?amin:0, max=Number.isFinite(amax)?amax:100;
+        let sliderMin=min, sliderMax=max, sliderStep=Number.isFinite(astepNative)&&astepNative>0?astepNative:1, sliderValue=value, heightValues='';
+        if(isCutHeight){
+          const choices=this._heightSupportedMm(e).map(mm=>this._heightMmToDisplay(mm,e));
+          if(choices.length){
+            let closest=0;
+            choices.forEach((choice,index)=>{if(Math.abs(choice-value)<Math.abs(choices[closest]-value))closest=index;});
+            min=choices[0]; max=choices[choices.length-1];
+            sliderMin=0; sliderMax=choices.length-1; sliderStep=1; sliderValue=closest;
+            heightValues=choices.join(',');
+          }
+        }else if(isWholePercent){
+          sliderStep=1;
+        }
+        const shown=Number.isFinite(raw)?`${isCutHeight?this._formatHeight(raw,e):raw.toLocaleString(undefined,{maximumFractionDigits:2})}${unit?` ${this._escape(unit)}`:''}`:'—';
+        const pct=sliderMax>sliderMin?Math.max(0,Math.min(100,(sliderValue-sliderMin)/(sliderMax-sliderMin)*100)):0;
+        const minText=isCutHeight?this._formatHeight(min,e):min.toLocaleString(undefined,{maximumFractionDigits:2});
+        const maxText=isCutHeight?this._formatHeight(max,e):max.toLocaleString(undefined,{maximumFractionDigits:2});
+        return `<div class="settingRow numberRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span class="numberSetting"><span class="numberHead"><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="numberCurrent" data-number-value="${eid}">${shown}</span></span><input class="settingSlider" style="--pct:${pct}%" type="range" data-number="${eid}" data-height-values="${heightValues}" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" value="${sliderValue}" aria-label="${label}"><span class="settingScale"><span>${minText}${unit?` ${this._escape(unit)}`:''}</span><span>${maxText}${unit?` ${this._escape(unit)}`:''}</span></span></span></div>`;
       }
       const value=this._settingValue(e);
       return `<button class="settingRow" data-entity="${eid}"><span class="settingIcon"><ha-icon icon="${this._escape(icon)}"></ha-icon></span><span><span class="settingName">${label}</span><span class="settingEntity">${eid}</span></span><span class="settingValue"><span>${this._escape(value)}</span><ha-icon icon="mdi:chevron-right"></ha-icon></span></button>`;
@@ -1089,15 +1100,15 @@ class NavimowZoneDashboardCard extends HTMLElement {
       const entityId=slider.dataset.number; let raf=0;
       const preview=()=>{
         raf=0; this._paintSettingSlider(slider);
-        const entity=this._entity(entityId); const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height'); const unit=isCutHeight?this._heightUnit():(entity?.attributes?.unit_of_measurement||''); const n=Number(slider.value);
-        const wholePct=unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(entityId)); const out=root.querySelector(`[data-number-value="${CSS.escape(entityId)}"]`); if(out) out.textContent=`${Number.isFinite(n)?(wholePct?Math.round(n).toLocaleString():n.toLocaleString(undefined,{maximumFractionDigits:2})):'—'}${unit?` ${unit}`:''}`;
+        const entity=this._entity(entityId); const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height'); const unit=isCutHeight?this._heightUnit():(entity?.attributes?.unit_of_measurement||''); const n=isCutHeight?this._heightSliderDisplayedValue(slider):Number(slider.value);
+        const wholePct=unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(entityId)); const out=root.querySelector(`[data-number-value="${CSS.escape(entityId)}"]`); if(out) out.textContent=`${Number.isFinite(n)?(isCutHeight?this._formatHeight(n,entity):(wholePct?Math.round(n).toLocaleString():n.toLocaleString(undefined,{maximumFractionDigits:2}))):'—'}${unit?` ${unit}`:''}`;
       };
       slider.addEventListener('pointerdown',()=>{slider.dataset.dragging='1';});
       slider.addEventListener('input',()=>{if(!raf) raf=requestAnimationFrame(preview);});
       const commit=async()=>{
         slider.dataset.dragging='0'; if(raf){cancelAnimationFrame(raf);raf=0;} preview();
-        let n=Number(slider.value); if(!Number.isFinite(n)) return;
         const entity=this._entity(entityId); const isCutHeight=entityId===this.config.cutting_height || entityId.includes('cutting_height');
+        let n=isCutHeight?this._heightSliderDisplayedValue(slider):Number(slider.value); if(!Number.isFinite(n)) return;
         const nativeMin=Number(entity?.attributes?.min), nativeMax=Number(entity?.attributes?.max), astep=Number(entity?.attributes?.step);
         const amin=isCutHeight?this._heightFromNative(nativeMin,entity):nativeMin, amax=isCutHeight?this._heightFromNative(nativeMax,entity):nativeMax;
         const unit=isCutHeight?this._heightUnit():(entity?.attributes?.unit_of_measurement||''); const isWholePercent=(unit==='%' && (/charging_limit|return.*dock.*battery|return_battery/.test(entityId) || /charging limit|return-to-dock battery/i.test(this._settingLabel(entity||{}))));
@@ -1107,7 +1118,12 @@ class NavimowZoneDashboardCard extends HTMLElement {
         const target=Number(n.toFixed(3));
         const serviceTarget=isCutHeight?this._heightToNative(n,entity):target;
         this._pendingSettings.set(entityId,{type:'number',value:target,expires:Date.now()+45000});
-        slider.value=String(target); preview();
+        if(isCutHeight){
+          const values=String(slider.dataset.heightValues||'').split(',').map(Number).filter(Number.isFinite);
+          let closest=0; values.forEach((choice,index)=>{if(Math.abs(choice-target)<Math.abs(values[closest]-target))closest=index;});
+          slider.value=String(closest);
+        }else slider.value=String(target);
+        preview();
         try{await this._service('number','set_value',{entity_id:entityId,value:serviceTarget});}
         catch(_e){this._pendingSettings.delete(entityId); this._updateSettingsControls();}
       };
@@ -1150,11 +1166,17 @@ class NavimowZoneDashboardCard extends HTMLElement {
         else if(now<pending.expires){value=Number(pending.value);}
         else{this._pendingSettings.delete(entityId);}
       }
-      if(slider.dataset.dragging!=='1') slider.value=String(value);
+      if(slider.dataset.dragging!=='1'){
+        if(isCutHeight){
+          const values=String(slider.dataset.heightValues||'').split(',').map(Number).filter(Number.isFinite);
+          let closest=0; values.forEach((choice,index)=>{if(Math.abs(choice-value)<Math.abs(values[closest]-value))closest=index;});
+          slider.value=String(closest);
+        }else slider.value=String(value);
+      }
       this._paintSettingSlider(slider);
       if(slider.dataset.dragging!=='1'){
         const unit=isCutHeight?this._heightUnit():(e.attributes.unit_of_measurement||''); const out=root.querySelector(`[data-number-value="${CSS.escape(entityId)}"]`);
-        if(out) out.textContent=`${value.toLocaleString()}${unit?` ${unit}`:''}`;
+        if(out) out.textContent=`${isCutHeight?this._formatHeight(value,e):value.toLocaleString()}${unit?` ${unit}`:''}`;
       }
     });
   }
