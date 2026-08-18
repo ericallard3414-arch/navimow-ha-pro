@@ -1,3 +1,11 @@
+## 0.7.14
+
+- Add Automatic, Metric and Imperial measurement-unit choices to the dashboard Configuration drawer.
+- Make Automatic follow Home Assistant's configured unit system.
+- Convert both cutting-height sliders and readouts while keeping all mower commands in supported native millimetres.
+- Save the card's unit override in the current browser and support an optional `height_units: auto|metric|imperial` YAML setting.
+- Bump the bundled frontend cache version so existing dashboards load the updated card.
+
 ## 0.7.13
 
 - Send cutting-height values to i-series mowers using their decimal robot encoding while retaining hexadecimal encoding for X-series models.
