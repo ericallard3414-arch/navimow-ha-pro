@@ -133,6 +133,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # numbers (especially cutting height) back to stale values.
         # value, deadline, pre-write value, accept_external_change
         self._pending_setting_values: dict[str, tuple[Any, float, Any, bool]] = {}
+        self._fast_settings_task: asyncio.Task | None = None
         self._fast_location_task: asyncio.Task | None = None
         self._fast_location_deadline: float = 0.0
         self._fast_location_last_signature: tuple[Any, ...] | None = None
@@ -223,6 +224,9 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_refresh_cloud_geometry()
             await self._async_refresh_cloud_terrain()
             await self._async_refresh_private_telemetry(force_slow=True)
+            self._fast_settings_task = self.hass.async_create_task(
+                self._async_fast_settings_refresh()
+            )
         await self._async_import_terrain_files()
         if self._discover_zones_from_payload(self._discovery_payloads):
             await self._async_save_store()
@@ -415,6 +419,49 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 return True
         return False
+
+    async def _async_fast_settings_refresh(self) -> None:
+        """Refresh mutable cloud settings without accelerating heavy telemetry."""
+        client = self._private_client
+        serial = str(getattr(self.device, "serial_number", None) or self.device.id or "")
+        if client is None or not serial:
+            return
+        try:
+            while True:
+                await asyncio.sleep(5.0)
+                try:
+                    set_list = await self.hass.async_add_executor_job(
+                        client.set_list, serial
+                    )
+                except (NavimowError, OSError, ValueError, json.JSONDecodeError) as err:
+                    _LOGGER.debug(
+                        "Fast private settings refresh failed for %s: %s",
+                        serial,
+                        err,
+                    )
+                    continue
+                raw = dict(self._private_slow_raw)
+                raw["set_list"] = set_list
+                self._private_slow_raw = raw
+                normalized = self._normalize_private_telemetry(raw)
+                new_settings = normalized.get("settings") or {}
+                old_settings = (self._private_telemetry or {}).get("settings") or {}
+                if new_settings != old_settings:
+                    telemetry = dict(self._private_telemetry or {})
+                    telemetry["settings"] = new_settings
+                    self._private_telemetry = telemetry
+                    self.data = self._build_data()
+                    self.async_set_updated_data(self.data)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._fast_settings_task = None
+
+    def stop_background_tasks(self) -> None:
+        """Cancel coordinator-owned polling and bootstrap tasks."""
+        for task in (self._fast_settings_task, self._fast_location_task):
+            if task is not None and not task.done():
+                task.cancel()
 
     async def _async_refresh_private_telemetry(self, force_slow: bool = False) -> None:
         """Fetch and normalize private read-only mower telemetry."""
