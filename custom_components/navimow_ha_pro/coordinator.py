@@ -1041,18 +1041,31 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if valid_heights:
                 wire = min(valid_heights, key=lambda height: abs(height - wire))
 
-            # i-series MowerSettingBean expects decimal height text. X-series
-            # uses hexadecimal text for the robot channel.
+            # The official app uses different wire formats by mower family.
+            #
+            # i-series (confirmed with an i215):
+            #   /vehicle/set/send          {"height": 65}
+            #   /vehicle/set/save-set-data {"height": "65"}
+            #
+            # X-series keeps the hexadecimal encoding used by its settings
+            # protocol. Do not share the i-series conversion with X models.
             model = str(getattr(self.device, "model", None) or "").strip().lower()
-            if re.match(r"^i\\d", model):
-                robot_value = str(wire)
+            is_i_series = bool(re.match(r"^i\\d", model))
+            if is_i_series:
+                robot_value = wire
+                cloud_value: Any = str(wire)
             else:
                 robot_value = f"{wire:02X}"
+                cloud_value = f"{wire:02X}" if cloud_hex else wire
+        else:
+            cloud_value = f"{wire:02X}" if cloud_hex else wire
 
         def _write() -> None:
+            # Match the official Save workflow: apply the robot command first;
+            # persist the cloud setting only after that command succeeds.
             client.send_setting_device(serial, {write_key: robot_value})
             client.save_setting_iot(
-                serial, vehicle_type, {write_key: f"{wire:02X}" if cloud_hex else wire}
+                serial, vehicle_type, {write_key: cloud_value}
             )
 
         await self.hass.async_add_executor_job(_write)
