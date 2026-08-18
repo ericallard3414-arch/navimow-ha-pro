@@ -57,7 +57,7 @@ PLATFORMS: list[Platform] = [
 
 _SCHEDULER_CARD = "navimow-scheduler-card.js"
 _ZONE_DASHBOARD_CARD = "navimow-zone-dashboard-card.js"
-_FRONTEND_CARD_VERSION = "0720"
+_FRONTEND_CARD_VERSION = "0721"
 _FRONTEND_KEY = f"{DOMAIN}_frontend_registered"
 
 
@@ -947,6 +947,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if "unload_flag" in data:
                 data["unload_flag"][0] = True
             sdk = data.get("sdk")
+            for coordinator in (data.get("coordinators") or {}).values():
+                coordinator.stop_background_tasks()
             watchdog_task = data.get("location_watchdog_task")
             if watchdog_task:
                 watchdog_task.cancel()
