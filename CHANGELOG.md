@@ -1,3 +1,10 @@
+## 0.7.17
+
+- Fix cutting-height sliders when Home Assistant converts state/min/max to inches but leaves the backend step in millimetres.
+- Build both card sliders on Navimow's consistent 5 mm height grid instead of the mixed-unit step attribute.
+- Prevent the main slider thumb from jumping to the maximum while the value remains at 65 mm.
+- Bump the bundled frontend cache version so dashboards load the corrected JavaScript.
+
 ## 0.7.16
 
 - Replace the main cutting-height range with discrete positions mapped to exact mower-supported height increments.
