@@ -1047,16 +1047,16 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             #   /vehicle/set/send          {"height": 65}
             #   /vehicle/set/save-set-data {"height": "65"}
             #
-            # X-series keeps the hexadecimal encoding used by its settings
-            # protocol. Do not share the i-series conversion with X models.
+            # The live robot command is a numeric millimetre value for both
+            # mower families. Persistence differs: i-series stores decimal text,
+            # while X-series settings are reported and saved as hexadecimal text.
             model = str(getattr(self.device, "model", None) or "").strip().lower()
             is_i_series = bool(re.match(r"^i\d", model))
+            robot_value = wire
             if is_i_series:
-                robot_value = wire
                 cloud_value: Any = str(wire)
             else:
-                robot_value = f"{wire:02X}"
-                cloud_value = f"{wire:02X}" if cloud_hex else wire
+                cloud_value = f"{wire:02X}"
         else:
             cloud_value = f"{wire:02X}" if cloud_hex else wire
 
