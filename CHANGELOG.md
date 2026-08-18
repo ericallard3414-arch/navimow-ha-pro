@@ -1,3 +1,13 @@
+## 0.7.22
+
+- Make cutting-height controls use the exact discrete height list advertised by each mower.
+- Keep i-series mowers on their 5 mm metric / 0.2 in display grid.
+- Support the X430 quarter-inch grid from 0.75 to 4.00 in, with rounded metric labels of 19, 26, 32, 39, 45, 51, 57, 64, 70, 76, 82, 89, 95 and 101 mm.
+- Expose supported millimetre positions and the height family on the Home Assistant number entity.
+- Use discrete model-specific positions in both the main dashboard slider and Configuration slider.
+- Preserve two-decimal labels such as 0.75 in and exact backend snapping.
+- Bump the bundled frontend cache version so dashboards load the model-aware controls.
+
 ## 0.7.21
 
 - Distinguish stale pre-write settings from genuine changes made in the official Navimow app.
