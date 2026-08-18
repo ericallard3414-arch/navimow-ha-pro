@@ -66,7 +66,7 @@ class NavimowSettingNumber(CoordinatorEntity[NavimowCoordinator], NumberEntity):
             is_quarter_inch = (
                 len(heights) >= 3
                 and all(
-                    abs(value - (position * 25.4 / 4)) <= 0.55
+                    abs(value - (position * 25.4 / 4)) <= 1.0
                     for value, position in zip(heights, quarter_positions)
                 )
                 and all(
@@ -81,7 +81,7 @@ class NavimowSettingNumber(CoordinatorEntity[NavimowCoordinator], NumberEntity):
             )
             self._attr_native_min_value, self._attr_native_max_value = min(heights), max(heights)
             differences = [b - a for a, b in zip(heights, heights[1:]) if b > a]
-            # Rounded quarter-inch metric labels alternate between 6 and 7 mm.
+            # API-normalized quarter-inch metric labels alternate between 6 and 7 mm.
             # A 1 mm HA step permits
             # every advertised value; the card uses the exact discrete list.
             self._attr_native_step = (
