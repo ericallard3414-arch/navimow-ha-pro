@@ -509,9 +509,10 @@ class NavimowZoneDashboardCard extends HTMLElement {
       const slider=this.querySelector('#heightSlider');
       const nativeMin=Number(h.attributes.min), nativeMax=Number(h.attributes.max), nativeStep=Number(h.attributes.step);
       const min=this._heightFromNative(nativeMin,h), max=this._heightFromNative(nativeMax,h);
-      const displayStep=Number.isFinite(nativeStep)&&nativeStep>0
-        ? this._heightStepFromNative(nativeStep,h)
-        : (this._usesImperialHeight()?0.2:5);
+      // Some Home Assistant clients convert the state/min/max to inches
+      // while leaving the backend's 5 mm step untouched. Using that mixed
+      // attribute would create only minimum/maximum slider positions.
+      const displayStep=this._usesImperialHeight()?5/25.4:5;
       const choices=[];
       if(Number.isFinite(min)&&Number.isFinite(max)&&Number.isFinite(displayStep)&&displayStep>0){
         const count=Math.max(1,Math.round((max-min)/displayStep));
@@ -999,7 +1000,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
         const aminNative=Number(e.attributes.min), amaxNative=Number(e.attributes.max), astepNative=Number(e.attributes.step);
         const amin=isCutHeight?this._heightFromNative(aminNative,e):aminNative;
         const amax=isCutHeight?this._heightFromNative(amaxNative,e):amaxNative;
-        const astep=isCutHeight&&Number.isFinite(astepNative)?this._heightStepFromNative(astepNative,e):astepNative;
+        const astep=isCutHeight?(this._usesImperialHeight()?5/25.4:5):astepNative;
         const min=Number.isFinite(amin)?amin:0; const max=Number.isFinite(amax)?amax:100;
         const backendStep=Number.isFinite(astep)&&astep>0?astep:1;
         const unit=isCutHeight?this._heightUnit():nativeUnit;
