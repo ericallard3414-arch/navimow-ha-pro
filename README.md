@@ -63,7 +63,7 @@ before broader compatibility is claimed.
 - Live mowing trail that excludes travel-to-zone and return-home movement
 - Perimeter trail tolerance for edge mowing near/outside the zone polygon
 - Dock-position correction when the mower reports Docked/Charging
-- Cutting-height control with model-aware i-series and X-series encoding
+- Telemetry-driven cutting-height controls using each mower's exact advertised positions
 - Automatic / Metric / Imperial cutting-height display units
 - Card dark mode saved independently in each browser or Home Assistant app
 - Automatic mower entity discovery and mower-friendly-name heading
@@ -137,10 +137,11 @@ Open the card's **Settings → Appearance** section to configure:
   millimetres; Imperial displays it in inches.
 
 Unit conversion affects only what the card displays. Commands continue to use the
-mower's exact supported positions. The dashboard reads the height list advertised by each
-mower instead of assuming one universal slider grid. i-series models use their 5 mm metric /
-0.2 in display steps. X-series quarter-inch models such as the X430 use 0.75–4.00 in in
-0.25 in steps, or their rounded metric labels (19–101 mm). Navimow HA Pro also preserves
+mower's exact supported positions. The dashboard reads the height list advertised by each mower instead of assuming one
+universal slider grid or identifying it by model name. Quarter-inch grids are detected from
+the positions themselves, including regional variants such as the X430's 0.75–4.00 in grid
+and rounded 19–101 mm labels. All other mowers retain their exact advertised discrete list.
+Navimow HA Pro also preserves
 the correct model-family command protocol: i-series uses numeric robot commands followed
 by decimal-string cloud persistence, while X-series retains its hexadecimal encoding.
 
