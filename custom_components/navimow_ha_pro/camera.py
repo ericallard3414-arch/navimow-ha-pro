@@ -24,6 +24,9 @@ VIEW = 800
 # overlay representation while keeping the full-resolution SVG camera image.
 MAX_ZONE_ATTRIBUTE_POINTS = 240
 MAX_TRAIL_ATTRIBUTE_POINTS = 300
+TRAIL_SIMPLIFY_TOLERANCE_METERS = 0.12
+TRAIL_ACTIVE_TAIL_METERS = 2.0
+TRAIL_INPUT_SPACING_METERS = 0.1
 
 
 def _evenly_sample(points: list, limit: int) -> list:
@@ -51,41 +54,161 @@ def _compact_map_points(points: list, limit: int) -> list[list[float]]:
     return result
 
 
-def _compact_trail(points: list, limit: int) -> list:
-    """Compact a trail while retaining endpoints and zone/gap boundaries."""
-    if len(points) <= limit:
-        return list(points)
-
-    mandatory = {0, len(points) - 1}
-    previous = None
-    previous_zone = None
-    for index, point in enumerate(points):
-        if not isinstance(point, (list, tuple)) or len(point) < 2:
-            continue
-        zone = point[2] if len(point) >= 3 else None
-        if previous is not None:
-            try:
-                gap = math.hypot(
-                    float(point[0]) - float(previous[0]),
-                    float(point[1]) - float(previous[1]),
-                ) > 2.5
-            except (TypeError, ValueError, IndexError):
-                gap = True
-            if zone != previous_zone or gap:
-                mandatory.update((max(0, index - 1), index))
-        previous = point
-        previous_zone = zone
-
-    if len(mandatory) >= limit:
-        chosen = _evenly_sample(sorted(mandatory), limit)
-    else:
-        chosen = set(mandatory)
-        remaining = limit - len(chosen)
-        chosen.update(
-            round(index * (len(points) - 1) / max(remaining - 1, 1))
-            for index in range(remaining)
+def _trail_point(point: object) -> tuple[float, float, object] | None:
+    """Return a normalized trail point, or None for malformed input."""
+    if not isinstance(point, (list, tuple)) or len(point) < 2:
+        return None
+    try:
+        return (
+            float(point[0]),
+            float(point[1]),
+            point[2] if len(point) >= 3 else None,
         )
-    return [points[index] for index in sorted(chosen)]
+    except (TypeError, ValueError):
+        return None
+
+
+def _distance_to_line(
+    point: tuple[float, float, object],
+    start: tuple[float, float, object],
+    end: tuple[float, float, object],
+) -> float:
+    """Return the perpendicular distance from point to an infinite line."""
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    length = math.hypot(dx, dy)
+    if length <= 1e-9:
+        return math.hypot(point[0] - start[0], point[1] - start[1])
+    numerator = abs(
+        dy * point[0]
+        - dx * point[1]
+        + end[0] * start[1]
+        - end[1] * start[0]
+    )
+    return numerator / length
+
+
+def _simplify_trail_segment(
+    points: list[tuple[object, tuple[float, float, object]]],
+    tolerance: float,
+    active_tail: float,
+) -> list[object]:
+    """Simplify one continuous trail without moving committed vertices.
+
+    The previous evenly-spaced sampler selected different historical indexes
+    whenever the source list grew, making completed mowing lines visibly sway.
+    This streaming simplifier commits a vertex only after a bend is confirmed
+    or the active tail grows too long. Appending a sample can therefore change
+    only the final, still-active part of the trail.
+    """
+    if len(points) <= 2:
+        return [raw for raw, _normalized in points]
+
+    result = [points[0][0]]
+    buffer = [points[0]]
+    for item in points[1:]:
+        buffer.append(item)
+        while len(buffer) > 2:
+            start = buffer[0][1]
+            end = buffer[-1][1]
+            deviations = [
+                _distance_to_line(candidate[1], start, end)
+                for candidate in buffer[1:-1]
+            ]
+            greatest = max(deviations, default=0.0)
+            span = math.hypot(end[0] - start[0], end[1] - start[1])
+            if greatest <= tolerance and span <= active_tail:
+                break
+
+            if greatest > tolerance:
+                commit_index = deviations.index(greatest) + 1
+            else:
+                # The line is straight, but freeze it in bounded pieces so GPS
+                # jitter can move no more than the short active tail behind mower.
+                commit_index = len(buffer) - 2
+                for index in range(1, len(buffer) - 1):
+                    candidate = buffer[index][1]
+                    if math.hypot(
+                        candidate[0] - start[0], candidate[1] - start[1]
+                    ) >= active_tail:
+                        commit_index = max(1, index - 1)
+                        break
+
+            result.append(buffer[commit_index][0])
+            buffer = buffer[commit_index:]
+
+    if result[-1] is not buffer[-1][0]:
+        result.append(buffer[-1][0])
+    return result
+
+
+def _compact_trail(points: list, limit: int) -> list:
+    """Compact a trail while keeping completed geometry append-stable."""
+    segments: list[list[tuple[object, tuple[float, float, object]]]] = []
+    current: list[tuple[object, tuple[float, float, object]]] = []
+    previous: tuple[float, float, object] | None = None
+    for raw_point in points:
+        point = _trail_point(raw_point)
+        if point is None:
+            continue
+        gap = previous is not None and math.hypot(
+            point[0] - previous[0], point[1] - previous[1]
+        ) > 2.5
+        zone_changed = previous is not None and point[2] != previous[2]
+        if current and (gap or zone_changed):
+            segments.append(current)
+            current = []
+        current.append((raw_point, point))
+        previous = point
+    if current:
+        segments.append(current)
+
+    # Location telemetry can arrive only a few centimetres apart. Thin those
+    # redundant samples once before trying the fixed simplification levels.
+    # The current endpoint is always retained, and committed older samples are
+    # selected independently of any points appended later.
+    thinned_segments = []
+    for segment in segments:
+        if len(segment) <= 2:
+            thinned_segments.append(segment)
+            continue
+        thinned = [segment[0]]
+        for item in segment[1:-1]:
+            previous_kept = thinned[-1][1]
+            point = item[1]
+            if math.hypot(
+                point[0] - previous_kept[0], point[1] - previous_kept[1]
+            ) >= TRAIL_INPUT_SPACING_METERS:
+                thinned.append(item)
+        if thinned[-1][0] is not segment[-1][0]:
+            thinned.append(segment[-1])
+        thinned_segments.append(thinned)
+
+    def _simplified(tolerance: float, active_tail: float) -> list:
+        result: list = []
+        for segment in thinned_segments:
+            result.extend(
+                _simplify_trail_segment(segment, tolerance, active_tail)
+            )
+        return result
+
+    # Prefer removing redundant points along straight passes before relaxing
+    # the bend tolerance. Each level is fixed, so appending telemetry keeps all
+    # committed vertices stable. A larger level is selected only occasionally
+    # as an exceptionally long session fills the attribute budget; unlike the
+    # old proportional sampler, it does not reshape the map on every update.
+    for active_tail in (TRAIL_ACTIVE_TAIL_METERS, 4.0, 8.0, 16.0, 32.0, 64.0):
+        compact = _simplified(TRAIL_SIMPLIFY_TOLERANCE_METERS, active_tail)
+        if len(compact) <= limit:
+            return compact
+    for tolerance in (0.2, 0.35, 0.6, 1.0, 2.0):
+        compact = _simplified(tolerance, 64.0)
+        if len(compact) <= limit:
+            return compact
+
+    # More than half the point budget made of independent zone/gap segments is
+    # malformed telemetry. Keep the entity recorder-safe even in that case.
+    return _evenly_sample(compact, limit)
 
 
 async def async_setup_entry(
@@ -282,7 +405,7 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 previous = None
                 previous_zone = None
                 for point in _compact_trail(
-                    live_trail[-8000:], MAX_TRAIL_ATTRIBUTE_POINTS
+                    live_trail, MAX_TRAIL_ATTRIBUTE_POINTS
                 ):
                     if not isinstance(point, (list, tuple)) or len(point) < 2:
                         continue
