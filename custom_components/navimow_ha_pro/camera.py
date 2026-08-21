@@ -29,6 +29,14 @@ TRAIL_ACTIVE_TAIL_METERS = 2.0
 TRAIL_INPUT_SPACING_METERS = 0.1
 
 
+def _mower_marker_family(model: object) -> str:
+    """Return the visual marker family for a Navimow model name."""
+    normalized = "".join(character for character in str(model or "").lower() if character.isalnum())
+    if any(model_code in normalized for model_code in ("x420", "x430", "x450")):
+        return "x4"
+    return "standard"
+
+
 def _evenly_sample(points: list, limit: int) -> list:
     """Return at most limit evenly distributed points, preserving both ends."""
     if len(points) <= limit:
@@ -781,21 +789,50 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         if self._include_dynamic_overlays and mower is not None:
             marker_x = px(float(mower[0]))
             marker_y = py(float(mower[1]))
+            marker_family = _mower_marker_family(self.coordinator.device.model)
+            if marker_family == "x4":
+                marker_art = (
+                    '<g transform="rotate(-90)">'
+                    '<ellipse cx="1" cy="3" rx="30" ry="20" fill="#000" opacity=".28"/>'
+                    '<rect x="-23" y="-19" width="12" height="9" rx="2.5" fill="#0c1116" stroke="#4a545d" stroke-width=".8"/>'
+                    '<rect x="-23" y="10" width="12" height="9" rx="2.5" fill="#0c1116" stroke="#4a545d" stroke-width=".8"/>'
+                    '<rect x="13" y="-18" width="10" height="8" rx="2.5" fill="#0c1116" stroke="#4a545d" stroke-width=".8"/>'
+                    '<rect x="13" y="10" width="10" height="8" rx="2.5" fill="#0c1116" stroke="#4a545d" stroke-width=".8"/>'
+                    '<path d="M -19 -11 Q -15 -15 -10 -15 H 6 L 14 -12 L 19 -7 V 7 L 14 12 L 6 15 H -10 Q -15 15 -19 11 L -22 6 V -6 Z" '
+                    'fill="#2b3138" stroke="#88939c" stroke-width="1.15"/>'
+                    '<path d="M -11 -12 H 5 L 15 -9 L 11 -4 H -14 Z" fill="#4d5660" stroke="#20272e" stroke-width=".9"/>'
+                    '<path d="M -11 12 H 5 L 15 9 L 11 4 H -14 Z" fill="#4d5660" stroke="#20272e" stroke-width=".9"/>'
+                    '<path d="M -16 -7 H 18 L 26 -4 V 4 L 18 7 H -16 Q -19 4 -19 0 Q -19 -4 -16 -7 Z" fill="#111820"/>'
+                    '<path d="M 10 -7 L 17 -14 L 27 -17 L 30 -13 L 25 -7 L 18 -4 L 15 -2 Z" fill="#59626b" stroke="#7d8790" stroke-width=".65" stroke-linejoin="round"/>'
+                    '<path d="M 10 7 L 17 14 L 27 17 L 30 13 L 25 7 L 18 4 L 15 2 Z" fill="#59626b" stroke="#7d8790" stroke-width=".65" stroke-linejoin="round"/>'
+                    '<path d="M 17 -6 L 27 -9 L 32 -5 L 34 -2 V 2 L 32 5 L 27 9 L 17 6 Z" fill="#6d767f" stroke="#8b959e" stroke-width=".7" stroke-linejoin="round"/>'
+                    '<path d="M 29 -18 Q 33 -10 33 0 Q 33 10 29 18" fill="none" stroke="#4a535b" stroke-width="4.2" stroke-linecap="round"/>'
+                    '<path d="M 29 -18 Q 33 -10 33 0 Q 33 10 29 18" fill="none" stroke="#080c10" stroke-width="2.8" stroke-linecap="round"/>'
+                    '<rect x="-7" y="-4" width="6" height="8" rx="1.7" fill="#ff5538"/>'
+                    '<rect x="1" y="-4.5" width="6" height="9" rx="1.5" fill="#111820"/>'
+                    '<path d="M 9 -5.5 V 5.5" stroke="#65a8ff" stroke-width="2.4" stroke-linecap="round"/>'
+                    '<path d="M 12 -5 V 5 M 14 -5 V 5 M 16 -4 V 4" stroke="#717b84" stroke-width="1" stroke-linecap="round"/>'
+                    '</g>'
+                )
+            else:
+                marker_art = (
+                    '<circle r="18" fill="#1f2933" stroke="#ffffff" stroke-width="2" '
+                    'stroke-opacity=".9"/>'
+                    '<rect x="-8" y="-11" width="16" height="22" rx="5" '
+                    'fill="#f4f7f9" stroke="#263746" stroke-width="2"/>'
+                    '<rect x="-5" y="-7" width="10" height="7" rx="2" fill="#ff7a1a"/>'
+                    '<circle cx="-10" cy="-7" r="2.5" fill="#151d24"/>'
+                    '<circle cx="-10" cy="7" r="2.5" fill="#151d24"/>'
+                    '<circle cx="10" cy="-7" r="2.5" fill="#151d24"/>'
+                    '<circle cx="10" cy="7" r="2.5" fill="#151d24"/>'
+                    '<path d="M 0 -16 L -4 -10 L 4 -10 Z" fill="#ffffff"/>'
+                )
             marker_svg = (
                 f'<g transform="translate({marker_x:.1f} {marker_y:.1f}) '
                 # The marker artwork points upward, while calculated map
                 # headings use zero degrees to the right (east).
                 f'rotate({marker_rotation + 90.0:.1f})">'
-                '<circle r="18" fill="#1f2933" stroke="#ffffff" stroke-width="2" '
-                'stroke-opacity=".9"/>'
-                '<rect x="-8" y="-11" width="16" height="22" rx="5" '
-                'fill="#f4f7f9" stroke="#263746" stroke-width="2"/>'
-                '<rect x="-5" y="-7" width="10" height="7" rx="2" fill="#ff7a1a"/>'
-                '<circle cx="-10" cy="-7" r="2.5" fill="#151d24"/>'
-                '<circle cx="-10" cy="7" r="2.5" fill="#151d24"/>'
-                '<circle cx="10" cy="-7" r="2.5" fill="#151d24"/>'
-                '<circle cx="10" cy="7" r="2.5" fill="#151d24"/>'
-                '<path d="M 0 -16 L -4 -10 L 4 -10 Z" fill="#ffffff"/>'
+                f'{marker_art}'
                 '</g>'
             )
         return "".join((
