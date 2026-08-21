@@ -295,7 +295,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
           .zoneOverlay{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
           .liveTrailOverlay{fill:none;stroke:#e4e7eb;stroke-width:clamp(6px,.32vw,12px);stroke-linecap:round;stroke-linejoin:round;opacity:.62;pointer-events:none;vector-effect:non-scaling-stroke}
           @media (min-width:2000px){.liveTrailOverlay{stroke-width:16px}}
-          @media (min-width:3000px){.liveTrailOverlay{stroke-width:18px}}.smoothMower{pointer-events:none;filter:drop-shadow(0 3px 5px rgba(0,0,0,.26))}.smoothMowerBody{fill:#aeb8c9;stroke:#fff;stroke-width:2}.smoothMowerCore{fill:#202735}.smoothMowerLidar{fill:#111723;stroke:#eef2f7;stroke-width:3}.smoothMowerStatus,.smoothMowerNose{fill:var(--orange)}
+          @media (min-width:3000px){.liveTrailOverlay{stroke-width:18px}}.smoothMower{pointer-events:none;filter:drop-shadow(0 3px 5px rgba(0,0,0,.26))}.smoothMowerBody{fill:#aeb8c9;stroke:#fff;stroke-width:2}.smoothMowerCore{fill:#202735}.smoothMowerLidar{fill:#111723;stroke:#eef2f7;stroke-width:3}.smoothMowerStatus,.smoothMowerNose{fill:var(--orange)}.smoothMowerX4Wheel{fill:#0c1116;stroke:#4a545d;stroke-width:.8}.smoothMowerX4Body{fill:#2b3138;stroke:#88939c;stroke-width:1.15}.smoothMowerX4Wing{fill:#4d5660;stroke:#20272e;stroke-width:.9}.smoothMowerX4Spine,.smoothMowerX4Display{fill:#111820}.smoothMowerX4Stop{fill:#ff5538}.smoothMowerX4Light{stroke:#65a8ff;stroke-width:2.4;stroke-linecap:round}.smoothMowerX4Vent{stroke:#717b84;stroke-width:1;stroke-linecap:round}.smoothMowerX4FrontWing{fill:#59626b;stroke:#7d8790;stroke-width:.65;stroke-linejoin:round}.smoothMowerX4FrontCenter{fill:#6d767f;stroke:#8b959e;stroke-width:.7;stroke-linejoin:round}.smoothMowerX4GuardEdge{fill:none;stroke:#4a535b;stroke-width:4.2;stroke-linecap:round}.smoothMowerX4Guard{fill:none;stroke:#080c10;stroke-width:2.8;stroke-linecap:round}
           .zone{fill:transparent;stroke:transparent;stroke-width:4;cursor:pointer;transition:fill .16s ease,stroke .16s ease,filter .16s ease;pointer-events:all}
           .zone.selected{fill:rgba(255,100,30,.27);stroke:var(--orange);filter:drop-shadow(0 0 5px rgba(255,100,30,.45));outline:none}.zone:focus{outline:none}.zone:focus-visible{outline:none;stroke:var(--orange)}
           .zone:hover{fill:rgba(255,100,30,.10);stroke:rgba(255,100,30,.55)}
@@ -699,7 +699,19 @@ class NavimowZoneDashboardCard extends HTMLElement {
     return {x:(nx-minX)*scale,y:(maxY-ny)*scale};
   }
 
-  _ensureDynamicMapElements(){
+  _mowerMarkerFamily(model){
+    const normalized=String(model||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    return /(?:navimow)?x4(?:20|30|50)/.test(normalized)?'x4':'standard';
+  }
+
+  _mowerMarkerMarkup(family){
+    if(family==='x4'){
+      return '<ellipse cx="1" cy="3" rx="30" ry="20" fill="#000" opacity=".28"></ellipse><rect class="smoothMowerX4Wheel" x="-23" y="-19" width="12" height="9" rx="2.5"></rect><rect class="smoothMowerX4Wheel" x="-23" y="10" width="12" height="9" rx="2.5"></rect><rect class="smoothMowerX4Wheel" x="13" y="-18" width="10" height="8" rx="2.5"></rect><rect class="smoothMowerX4Wheel" x="13" y="10" width="10" height="8" rx="2.5"></rect><path class="smoothMowerX4Body" d="M -19 -11 Q -15 -15 -10 -15 H 6 L 14 -12 L 19 -7 V 7 L 14 12 L 6 15 H -10 Q -15 15 -19 11 L -22 6 V -6 Z"></path><path class="smoothMowerX4Wing" d="M -11 -12 H 5 L 15 -9 L 11 -4 H -14 Z"></path><path class="smoothMowerX4Wing" d="M -11 12 H 5 L 15 9 L 11 4 H -14 Z"></path><path class="smoothMowerX4Spine" d="M -16 -7 H 18 L 26 -4 V 4 L 18 7 H -16 Q -19 4 -19 0 Q -19 -4 -16 -7 Z"></path><path class="smoothMowerX4FrontWing" d="M 10 -7 L 17 -14 L 27 -17 L 30 -13 L 25 -7 L 18 -4 L 15 -2 Z"></path><path class="smoothMowerX4FrontWing" d="M 10 7 L 17 14 L 27 17 L 30 13 L 25 7 L 18 4 L 15 2 Z"></path><path class="smoothMowerX4FrontCenter" d="M 17 -6 L 27 -9 L 32 -5 L 34 -2 V 2 L 32 5 L 27 9 L 17 6 Z"></path><path class="smoothMowerX4GuardEdge" d="M 29 -18 Q 33 -10 33 0 Q 33 10 29 18"></path><path class="smoothMowerX4Guard" d="M 29 -18 Q 33 -10 33 0 Q 33 10 29 18"></path><rect class="smoothMowerX4Stop" x="-7" y="-4" width="6" height="8" rx="1.7"></rect><rect class="smoothMowerX4Display" x="1" y="-4.5" width="6" height="9" rx="1.5"></rect><path class="smoothMowerX4Light" d="M 9 -5.5 V 5.5"></path><g class="smoothMowerX4Vent"><path d="M 12 -5 V 5"></path><path d="M 14 -5 V 5"></path><path d="M 16 -4 V 4"></path></g>';
+    }
+    return '<ellipse cx="0" cy="3" rx="20" ry="16" fill="#000" opacity=".24"></ellipse><path class="smoothMowerBody" d="M -15 -14 H 9 Q 18 -14 20 -5 V 5 Q 18 14 9 14 H -15 Q -20 10 -20 5 V -5 Q -20 -10 -15 -14 Z"></path><path class="smoothMowerCore" d="M -12 -10 H 8 Q 14 -10 15 -4 V 5 Q 14 10 8 10 H -12 Z"></path><circle class="smoothMowerLidar" cx="7" cy="-2" r="8"></circle><circle class="smoothMowerStatus" cx="-10" cy="6" r="3.5"></circle><path class="smoothMowerNose" d="M 20 -5 L 25 0 L 20 5 Z" stroke="#fff" stroke-width="1.5"></path>';
+  }
+
+  _ensureDynamicMapElements(cam=null){
     const svg=this.querySelector('#overlay'); if(!svg) return null;
     let trail=svg.querySelector('#liveTrailOverlay');
     if(!trail){
@@ -710,8 +722,13 @@ class NavimowZoneDashboardCard extends HTMLElement {
     let mower=svg.querySelector('#smoothMower');
     if(!mower){
       mower=document.createElementNS('http://www.w3.org/2000/svg','g'); mower.id='smoothMower'; mower.setAttribute('class','smoothMower');
-      mower.innerHTML='<ellipse cx="0" cy="3" rx="20" ry="16" fill="#000" opacity=".24"></ellipse><path class="smoothMowerBody" d="M -15 -14 H 9 Q 18 -14 20 -5 V 5 Q 18 14 9 14 H -15 Q -20 10 -20 5 V -5 Q -20 -10 -15 -14 Z"></path><path class="smoothMowerCore" d="M -12 -10 H 8 Q 14 -10 15 -4 V 5 Q 14 10 8 10 H -12 Z"></path><circle class="smoothMowerLidar" cx="7" cy="-2" r="8"></circle><circle class="smoothMowerStatus" cx="-10" cy="6" r="3.5"></circle><path class="smoothMowerNose" d="M 20 -5 L 25 0 L 20 5 Z" stroke="#fff" stroke-width="1.5"></path>';
       svg.insertBefore(mower,svg.firstChild?.nextSibling||svg.firstChild);
+    }
+    const camera=cam||this._entity(this.config.camera);
+    const family=this._mowerMarkerFamily(camera?.attributes?.mower_model);
+    if(mower.dataset.markerFamily!==family){
+      mower.dataset.markerFamily=family;
+      mower.innerHTML=this._mowerMarkerMarkup(family);
     }
     return {svg,trail,mower};
   }
@@ -751,7 +768,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
   }
 
   _updateDynamicMap(cam){
-    const els=this._ensureDynamicMapElements(); if(!els) return;
+    const els=this._ensureDynamicMapElements(cam); if(!els) return;
     // beta.19+ standalone camera frames already contain their own mower and
     // trail. Suppress this card's dynamic copies so exactly one of each is
     // visible. Older camera entities keep the original attribute overlays.
