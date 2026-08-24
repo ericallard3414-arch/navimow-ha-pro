@@ -116,6 +116,9 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._command_discovery_events: list[dict[str, Any]] = []
         self._location_messages_by_type: dict[str, Any] = {}
         self._last_location_update: float | None = None
+        self._last_position_update: float | None = None
+        self._last_position_report_epoch: float | None = None
+        self._last_position_source: str | None = None
         self._last_location_recovery: float | None = None
         self._location_recovery_count = 0
         self._last_saved = 0.0
@@ -310,6 +313,12 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "last_data_source": self._last_data_source,
                 "last_mqtt_update_monotonic": self._last_mqtt_update,
                 "last_http_fetch_monotonic": self._last_http_fetch,
+                "last_position_source": self._last_position_source,
+                "last_position_report_epoch": self._last_position_report_epoch,
+                "last_position_age_s": (
+                    round(time.monotonic() - self._last_position_update, 1)
+                    if self._last_position_update else None
+                ),
                 "last_task_delay": self._last_task_delay,
                 "last_task_delay_age_s": (
                     round(time.monotonic() - self._last_task_delay_monotonic, 1)
@@ -467,6 +476,11 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             baseline = self._official_session_baseline_start.get(zone_id)
             if current is not None and (baseline is None or current > baseline):
                 self._official_session_waiting = False
+                # The guard is needed only until the newly commanded session
+                # appears. Leaving these IDs populated permanently restricted
+                # every future app-started job to the previous HA zone list.
+                self._official_session_zone_ids.clear()
+                self._official_session_baseline_start.clear()
                 _LOGGER.info(
                     "Official trail fresh session detected: zone=%s start=%s baseline=%s",
                     zone_id, current, baseline,
@@ -1340,6 +1354,10 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif new_state in work_states:
             # A new/resumed mowing run supersedes a previous return notice.
             self._interruption_notice = None
+            # Mowing can be launched from the official Navimow app as well as
+            # from HA. Wake and poll the private pose channel in either case.
+            if prev_state not in work_states:
+                self._start_fast_location_bootstrap(120.0)
 
         # Navimow can leave the last moving pose cached for a while after the
         # mower has physically latched onto the charging station.  Once the
@@ -1414,6 +1432,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         changed = False
         registry_changed = False
         found_message = False
+        accepted_position = False
         for sample in self._message_samples(payload):
             message_type = self._integer(sample.get("type"))
             if message_type in (1, 2, 3, 4):
@@ -1496,12 +1515,45 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     y = self._finite(position.get("y"))
             if x is None or y is None:
                 continue
+
+            pose_now = time.monotonic()
+            report_epoch = self._finite(
+                sample.get("report_time", sample.get("reportTime"))
+            )
+            if report_epoch is not None and report_epoch > 10_000_000_000:
+                report_epoch /= 1000.0
+
+            # The private location endpoint frequently returns its last cached
+            # cloud pose while MQTT is already delivering live coordinates.
+            # Never let that older snapshot pull the mower marker backwards or
+            # cause valid blade-on points to fail the active-zone polygon gate.
+            recent_mqtt_pose = (
+                source == "private_location"
+                and self._last_mqtt_update is not None
+                and pose_now - self._last_mqtt_update <= MQTT_STALE_SECONDS
+            )
+            older_report = (
+                report_epoch is not None
+                and self._last_position_report_epoch is not None
+                and report_epoch < self._last_position_report_epoch
+            )
+            if recent_mqtt_pose or older_report:
+                continue
+
             found_message = True
+            accepted_position = True
+            self._last_position_update = pose_now
+            self._last_position_source = source
+            if report_epoch is not None:
+                self._last_position_report_epoch = report_epoch
 
             merged.update(sample)
             self._location = merged
             self._location["postureX"] = x
             self._location["postureY"] = y
+            self._location["position_source"] = source
+            if report_epoch is not None:
+                self._location["position_report_epoch"] = report_epoch
 
             # Retain a short pose history even while trail drawing is gated off.
             # Navimow can confirm currentMowBoundary a few seconds after the
@@ -1509,7 +1561,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # arrives we can backfill only the already-in-zone samples, which
             # restores the beginning of the trail without drawing the drive
             # from the dock/corridor.
-            pose_now = time.monotonic()
             self._recent_pose_samples.append((pose_now, x, y))
             cutoff = pose_now - 25.0
             self._recent_pose_samples = [p for p in self._recent_pose_samples[-160:] if p[0] >= cutoff]
@@ -1560,7 +1611,8 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now_update = time.monotonic()
         if source == "mqtt_location":
             self._last_mqtt_update = now_update
-        self._last_location_update = now_update
+        if accepted_position:
+            self._last_location_update = now_update
         self._last_data_source = source
         self.data = self._build_data()
         self.async_set_updated_data(self.data)

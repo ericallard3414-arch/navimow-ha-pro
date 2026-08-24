@@ -682,12 +682,11 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 'stroke-linejoin="round"/>'
                 '</g>'
             )
-        # Official trail data can contain both blade-on work strokes and the
-        # mower's approach/transfer route.  Only the former belongs on the live
-        # coverage map.  First constrain every server group to its own partition
-        # polygon, then suppress highly-straight connector groups.  This keeps
-        # genuine historical/resumable mowing inside the lawn while avoiding
-        # the dock-to-zone / corridor line that Navimow also stores.
+        # The official path endpoint is the authoritative coverage fallback
+        # when cloud pose telemetry is cached or sparse (notably while the
+        # mobile app has a direct Bluetooth connection). Constrain every group
+        # to its own lawn polygon so approach and inter-zone travel never become
+        # mowing coverage.
         zone_by_id = {
             int(zone.get("id")): zone
             for zone in zones
@@ -743,7 +742,9 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                     continue
                 in_partition = True
                 if polygon:
-                    in_partition = _point_in_polygon(x0, y0, polygon)
+                    in_partition = self.coordinator._point_in_or_near_polygon(
+                        x0, y0, polygon, margin=0.8
+                    )
                 if in_partition:
                     current_segment.append([x0, y0])
                 else:
@@ -754,8 +755,8 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 segments.append(current_segment)
 
             for segment in segments:
-                if _looks_like_transfer(segment):
-                    continue
+                # Straight passes are legitimate mowing strokes, so do not
+                # discard them as transfers after partition clipping.
                 commands = []
                 previous = None
                 for point in segment:
@@ -770,11 +771,14 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                         f'<path d="{" ".join(commands)}" fill="none" stroke="#ffffff" stroke-width="8" '
                         'stroke-linecap="round" stroke-linejoin="round" opacity=".38"/>'
                     )
-        # Do not render server path groups as cut coverage. They are a
-        # movement/path archive, not a reliable blade-on trail. The live trail
-        # below is built only from mower-state==mowing samples and is persisted
-        # across pause/return/dock for resume.
-        official_trail_svg = ""
+        # Render the server path underneath the smoother MQTT/live layer. This
+        # keeps coverage accurate even when the private pose endpoint repeats a
+        # stale coordinate for several refreshes.
+        official_trail_svg = (
+            "".join(official_svg_parts)
+            if self._include_dynamic_overlays
+            else ""
+        )
         # Keep the standalone camera entity complete as well as exposing the
         # smoother attribute-based overlays used by the dashboard card. Camera
         # consumers that do not use the custom card still need the live
