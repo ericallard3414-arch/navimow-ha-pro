@@ -40,12 +40,6 @@ from .api import NavimowCloudClient, NavimowError
 
 _LOGGER = logging.getLogger(__name__)
 
-# Keep enough exact blade-on samples for each lawn independently.  The old
-# global 12,000-point cap allowed a later mowing session in one partition to
-# evict the completed coverage of every other partition.
-MAX_TRAIL_POINTS_PER_ZONE = 12000
-TRAIL_TRIM_BATCH_POINTS = 1000
-
 
 class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator for Navimow data updates."""
@@ -80,7 +74,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_data_source: str | None = None
         self._location: dict[str, Any] | None = None
         self._trail: list[list[float]] = []  # [x, y, partition_id] in schema v3
-        self._trail_zone_counts: dict[int, int] = {}
         # Exact swept paths downloaded from Navimow's official trail API.
         # Kept separately from the high-frequency live trail so the camera can
         # render server-authoritative geometry without sacrificing a live pose.
@@ -116,9 +109,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._command_discovery_events: list[dict[str, Any]] = []
         self._location_messages_by_type: dict[str, Any] = {}
         self._last_location_update: float | None = None
-        self._last_position_update: float | None = None
-        self._last_position_report_epoch: float | None = None
-        self._last_position_source: str | None = None
         self._last_location_recovery: float | None = None
         self._location_recovery_count = 0
         self._last_saved = 0.0
@@ -177,7 +167,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # partition with every point so starting a different lawn can
                 # never erase another lawn's completed/partial work.
                 migrated: list[list[float]] = []
-                for item in raw_trail:
+                for item in raw_trail[-12000:]:
                     if not isinstance(item, (list, tuple)) or len(item) < 2:
                         continue
                     x = self._finite(item[0])
@@ -189,7 +179,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         zone_id = self._zone_id_for_point(float(x), float(y))
                     if zone_id is not None:
                         migrated.append([round(float(x), 3), round(float(y), 3), int(zone_id)])
-                self._trail = self._trim_trail_by_zone(migrated)
+                self._trail = migrated[-12000:]
             elif saved_trail_schema < 2:
                 # Schema v1 could include transit movement. Never import it as
                 # cut coverage.
@@ -228,7 +218,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._map_geometry = self._validate_map_geometry(
                 saved.get("map_geometry")
             )
-        self._recount_trail_zone_points()
         if self._map_geometry is None:
             await self._async_import_map_file()
         if self._private_client is not None:
@@ -243,52 +232,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save_store()
         self.sdk.on_state(self._handle_state)
         self.sdk.on_attributes(self._handle_attributes)
-
-    @classmethod
-    def _trim_trail_by_zone(cls, value: Any) -> list[list[float]]:
-        """Keep the newest exact mowing samples independently per partition."""
-        if not isinstance(value, list):
-            return []
-        counts: dict[int, int] = {}
-        retained: list[list[float]] = []
-        for raw_point in reversed(value):
-            if not isinstance(raw_point, (list, tuple)) or len(raw_point) < 3:
-                continue
-            zone_id = cls._integer(raw_point[2])
-            x = cls._finite(raw_point[0])
-            y = cls._finite(raw_point[1])
-            if zone_id is None or x is None or y is None:
-                continue
-            count = counts.get(zone_id, 0)
-            if count >= MAX_TRAIL_POINTS_PER_ZONE:
-                continue
-            retained.append([round(float(x), 3), round(float(y), 3), int(zone_id)])
-            counts[zone_id] = count + 1
-        retained.reverse()
-        return retained
-
-    def _recount_trail_zone_points(self) -> None:
-        """Rebuild the in-memory per-zone trail counters."""
-        counts: dict[int, int] = {}
-        for point in self._trail:
-            if not isinstance(point, (list, tuple)) or len(point) < 3:
-                continue
-            zone_id = self._integer(point[2])
-            if zone_id is not None:
-                counts[zone_id] = counts.get(zone_id, 0) + 1
-        self._trail_zone_counts = counts
-
-    def _append_trail_point(self, x: float, y: float, zone_id: int) -> None:
-        """Append one point without allowing another partition to evict it."""
-        zone_id = int(zone_id)
-        self._trail.append([round(float(x), 3), round(float(y), 3), zone_id])
-        count = self._trail_zone_counts.get(zone_id, 0) + 1
-        self._trail_zone_counts[zone_id] = count
-        # Trim in batches so high-frequency location updates do not repeatedly
-        # scan the complete retained history after the partition reaches its cap.
-        if count > MAX_TRAIL_POINTS_PER_ZONE + TRAIL_TRIM_BATCH_POINTS:
-            self._trail = self._trim_trail_by_zone(self._trail)
-            self._recount_trail_zone_points()
 
     def _build_data(self) -> dict[str, Any]:
         return {
@@ -313,12 +256,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "last_data_source": self._last_data_source,
                 "last_mqtt_update_monotonic": self._last_mqtt_update,
                 "last_http_fetch_monotonic": self._last_http_fetch,
-                "last_position_source": self._last_position_source,
-                "last_position_report_epoch": self._last_position_report_epoch,
-                "last_position_age_s": (
-                    round(time.monotonic() - self._last_position_update, 1)
-                    if self._last_position_update else None
-                ),
                 "last_task_delay": self._last_task_delay,
                 "last_task_delay_age_s": (
                     round(time.monotonic() - self._last_task_delay_monotonic, 1)
@@ -476,11 +413,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             baseline = self._official_session_baseline_start.get(zone_id)
             if current is not None and (baseline is None or current > baseline):
                 self._official_session_waiting = False
-                # The guard is needed only until the newly commanded session
-                # appears. Leaving these IDs populated permanently restricted
-                # every future app-started job to the previous HA zone list.
-                self._official_session_zone_ids.clear()
-                self._official_session_baseline_start.clear()
                 _LOGGER.info(
                     "Official trail fresh session detected: zone=%s start=%s baseline=%s",
                     zone_id, current, baseline,
@@ -1354,10 +1286,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif new_state in work_states:
             # A new/resumed mowing run supersedes a previous return notice.
             self._interruption_notice = None
-            # Mowing can be launched from the official Navimow app as well as
-            # from HA. Wake and poll the private pose channel in either case.
-            if prev_state not in work_states:
-                self._start_fast_location_bootstrap(120.0)
 
         # Navimow can leave the last moving pose cached for a while after the
         # mower has physically latched onto the charging station.  Once the
@@ -1432,7 +1360,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         changed = False
         registry_changed = False
         found_message = False
-        accepted_position = False
         for sample in self._message_samples(payload):
             message_type = self._integer(sample.get("type"))
             if message_type in (1, 2, 3, 4):
@@ -1515,45 +1442,12 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     y = self._finite(position.get("y"))
             if x is None or y is None:
                 continue
-
-            pose_now = time.monotonic()
-            report_epoch = self._finite(
-                sample.get("report_time", sample.get("reportTime"))
-            )
-            if report_epoch is not None and report_epoch > 10_000_000_000:
-                report_epoch /= 1000.0
-
-            # The private location endpoint frequently returns its last cached
-            # cloud pose while MQTT is already delivering live coordinates.
-            # Never let that older snapshot pull the mower marker backwards or
-            # cause valid blade-on points to fail the active-zone polygon gate.
-            recent_mqtt_pose = (
-                source == "private_location"
-                and self._last_mqtt_update is not None
-                and pose_now - self._last_mqtt_update <= MQTT_STALE_SECONDS
-            )
-            older_report = (
-                report_epoch is not None
-                and self._last_position_report_epoch is not None
-                and report_epoch < self._last_position_report_epoch
-            )
-            if recent_mqtt_pose or older_report:
-                continue
-
             found_message = True
-            accepted_position = True
-            self._last_position_update = pose_now
-            self._last_position_source = source
-            if report_epoch is not None:
-                self._last_position_report_epoch = report_epoch
 
             merged.update(sample)
             self._location = merged
             self._location["postureX"] = x
             self._location["postureY"] = y
-            self._location["position_source"] = source
-            if report_epoch is not None:
-                self._location["position_report_epoch"] = report_epoch
 
             # Retain a short pose history even while trail drawing is gated off.
             # Navimow can confirm currentMowBoundary a few seconds after the
@@ -1561,6 +1455,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # arrives we can backfill only the already-in-zone samples, which
             # restores the beginning of the trail without drawing the drive
             # from the dock/corridor.
+            pose_now = time.monotonic()
             self._recent_pose_samples.append((pose_now, x, y))
             cutoff = pose_now - 25.0
             self._recent_pose_samples = [p for p in self._recent_pose_samples[-160:] if p[0] >= cutoff]
@@ -1593,13 +1488,14 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             last = self._trail[-1] if self._trail else None
                             if last is None or math.hypot(bx - last[0], by - last[1]) >= 0.05:
                                 if last is None or math.hypot(bx - last[0], by - last[1]) <= 50:
-                                    self._append_trail_point(bx, by, int(boundary_now))
+                                    self._trail.append([round(bx, 3), round(by, 3), int(boundary_now)])
                                     changed = True
                 last = self._trail[-1] if self._trail else None
                 if last is None or math.hypot(x - last[0], y - last[1]) >= 0.05:
                     if last is None or math.hypot(x - last[0], y - last[1]) <= 50:
-                        self._append_trail_point(x, y, int(boundary_now))
+                        self._trail.append([round(x, 3), round(y, 3), int(boundary_now)])
                         changed = True
+                self._trail = self._trail[-12000:]
                 self._trail_gate_active = True
                 self._trail_gate_boundary = boundary_now
             else:
@@ -1611,8 +1507,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now_update = time.monotonic()
         if source == "mqtt_location":
             self._last_mqtt_update = now_update
-        if accepted_position:
-            self._last_location_update = now_update
+        self._last_location_update = now_update
         self._last_data_source = source
         self.data = self._build_data()
         self.async_set_updated_data(self.data)
@@ -2638,7 +2533,6 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     and self._integer(point[2]) in reset_ids
                 )
             ]
-            self._recount_trail_zone_points()
             self._official_trail_groups = [
                 group for group in self._official_trail_groups
                 if self._integer(group.get("partition_id")) not in reset_ids
