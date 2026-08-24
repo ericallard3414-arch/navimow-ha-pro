@@ -40,6 +40,12 @@ from .api import NavimowCloudClient, NavimowError
 
 _LOGGER = logging.getLogger(__name__)
 
+# Keep enough exact blade-on samples for each lawn independently.  The old
+# global 12,000-point cap allowed a later mowing session in one partition to
+# evict the completed coverage of every other partition.
+MAX_TRAIL_POINTS_PER_ZONE = 12000
+TRAIL_TRIM_BATCH_POINTS = 1000
+
 
 class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator for Navimow data updates."""
@@ -74,6 +80,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_data_source: str | None = None
         self._location: dict[str, Any] | None = None
         self._trail: list[list[float]] = []  # [x, y, partition_id] in schema v3
+        self._trail_zone_counts: dict[int, int] = {}
         # Exact swept paths downloaded from Navimow's official trail API.
         # Kept separately from the high-frequency live trail so the camera can
         # render server-authoritative geometry without sacrificing a live pose.
@@ -167,7 +174,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # partition with every point so starting a different lawn can
                 # never erase another lawn's completed/partial work.
                 migrated: list[list[float]] = []
-                for item in raw_trail[-12000:]:
+                for item in raw_trail:
                     if not isinstance(item, (list, tuple)) or len(item) < 2:
                         continue
                     x = self._finite(item[0])
@@ -179,7 +186,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         zone_id = self._zone_id_for_point(float(x), float(y))
                     if zone_id is not None:
                         migrated.append([round(float(x), 3), round(float(y), 3), int(zone_id)])
-                self._trail = migrated[-12000:]
+                self._trail = self._trim_trail_by_zone(migrated)
             elif saved_trail_schema < 2:
                 # Schema v1 could include transit movement. Never import it as
                 # cut coverage.
@@ -218,6 +225,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._map_geometry = self._validate_map_geometry(
                 saved.get("map_geometry")
             )
+        self._recount_trail_zone_points()
         if self._map_geometry is None:
             await self._async_import_map_file()
         if self._private_client is not None:
@@ -232,6 +240,52 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save_store()
         self.sdk.on_state(self._handle_state)
         self.sdk.on_attributes(self._handle_attributes)
+
+    @classmethod
+    def _trim_trail_by_zone(cls, value: Any) -> list[list[float]]:
+        """Keep the newest exact mowing samples independently per partition."""
+        if not isinstance(value, list):
+            return []
+        counts: dict[int, int] = {}
+        retained: list[list[float]] = []
+        for raw_point in reversed(value):
+            if not isinstance(raw_point, (list, tuple)) or len(raw_point) < 3:
+                continue
+            zone_id = cls._integer(raw_point[2])
+            x = cls._finite(raw_point[0])
+            y = cls._finite(raw_point[1])
+            if zone_id is None or x is None or y is None:
+                continue
+            count = counts.get(zone_id, 0)
+            if count >= MAX_TRAIL_POINTS_PER_ZONE:
+                continue
+            retained.append([round(float(x), 3), round(float(y), 3), int(zone_id)])
+            counts[zone_id] = count + 1
+        retained.reverse()
+        return retained
+
+    def _recount_trail_zone_points(self) -> None:
+        """Rebuild the in-memory per-zone trail counters."""
+        counts: dict[int, int] = {}
+        for point in self._trail:
+            if not isinstance(point, (list, tuple)) or len(point) < 3:
+                continue
+            zone_id = self._integer(point[2])
+            if zone_id is not None:
+                counts[zone_id] = counts.get(zone_id, 0) + 1
+        self._trail_zone_counts = counts
+
+    def _append_trail_point(self, x: float, y: float, zone_id: int) -> None:
+        """Append one point without allowing another partition to evict it."""
+        zone_id = int(zone_id)
+        self._trail.append([round(float(x), 3), round(float(y), 3), zone_id])
+        count = self._trail_zone_counts.get(zone_id, 0) + 1
+        self._trail_zone_counts[zone_id] = count
+        # Trim in batches so high-frequency location updates do not repeatedly
+        # scan the complete retained history after the partition reaches its cap.
+        if count > MAX_TRAIL_POINTS_PER_ZONE + TRAIL_TRIM_BATCH_POINTS:
+            self._trail = self._trim_trail_by_zone(self._trail)
+            self._recount_trail_zone_points()
 
     def _build_data(self) -> dict[str, Any]:
         return {
@@ -1488,14 +1542,13 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             last = self._trail[-1] if self._trail else None
                             if last is None or math.hypot(bx - last[0], by - last[1]) >= 0.05:
                                 if last is None or math.hypot(bx - last[0], by - last[1]) <= 50:
-                                    self._trail.append([round(bx, 3), round(by, 3), int(boundary_now)])
+                                    self._append_trail_point(bx, by, int(boundary_now))
                                     changed = True
                 last = self._trail[-1] if self._trail else None
                 if last is None or math.hypot(x - last[0], y - last[1]) >= 0.05:
                     if last is None or math.hypot(x - last[0], y - last[1]) <= 50:
-                        self._trail.append([round(x, 3), round(y, 3), int(boundary_now)])
+                        self._append_trail_point(x, y, int(boundary_now))
                         changed = True
-                self._trail = self._trail[-12000:]
                 self._trail_gate_active = True
                 self._trail_gate_boundary = boundary_now
             else:
@@ -2533,6 +2586,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     and self._integer(point[2]) in reset_ids
                 )
             ]
+            self._recount_trail_zone_points()
             self._official_trail_groups = [
                 group for group in self._official_trail_groups
                 if self._integer(group.get("partition_id")) not in reset_ids
