@@ -151,7 +151,12 @@ def _simplify_trail_segment(
 
 
 def _compact_trail(points: list, limit: int) -> list:
-    """Compact a trail while keeping completed geometry append-stable."""
+    """Compact a trail without losing its original segment boundaries.
+
+    Every returned point includes a temporary fourth value containing the
+    source segment number. The Lovelace path builder uses that marker instead
+    of re-inferring breaks from the distance between compacted points.
+    """
     segments: list[list[tuple[object, tuple[float, float, object]]]] = []
     current: list[tuple[object, tuple[float, float, object]]] = []
     previous: tuple[float, float, object] | None = None
@@ -171,10 +176,8 @@ def _compact_trail(points: list, limit: int) -> list:
     if current:
         segments.append(current)
 
-    # Location telemetry can arrive only a few centimetres apart. Thin those
-    # redundant samples once before trying the fixed simplification levels.
-    # The current endpoint is always retained, and committed older samples are
-    # selected independently of any points appended later.
+    # Thin redundant high-frequency samples independently inside each real
+    # segment. Never sample across a zone/session break.
     thinned_segments = []
     for segment in segments:
         if len(segment) <= 2:
@@ -192,31 +195,123 @@ def _compact_trail(points: list, limit: int) -> list:
             thinned.append(segment[-1])
         thinned_segments.append(thinned)
 
-    def _simplified(tolerance: float, active_tail: float) -> list:
-        result: list = []
-        for segment in thinned_segments:
-            result.extend(
-                _simplify_trail_segment(segment, tolerance, active_tail)
-            )
-        return result
+    def _simplified_segments(
+        tolerance: float, active_tail: float
+    ) -> list[list[object]]:
+        return [
+            _simplify_trail_segment(segment, tolerance, active_tail)
+            for segment in thinned_segments
+        ]
 
-    # Prefer removing redundant points along straight passes before relaxing
-    # the bend tolerance. Each level is fixed, so appending telemetry keeps all
-    # committed vertices stable. A larger level is selected only occasionally
-    # as an exceptionally long session fills the attribute budget; unlike the
-    # old proportional sampler, it does not reshape the map on every update.
-    for active_tail in (TRAIL_ACTIVE_TAIL_METERS, 4.0, 8.0, 16.0, 32.0, 64.0):
-        compact = _simplified(TRAIL_SIMPLIFY_TOLERANCE_METERS, active_tail)
-        if len(compact) <= limit:
-            return compact
+    def _tag_and_flatten(segment_lists: list[list[object]]) -> list[list[object]]:
+        tagged: list[list[object]] = []
+        for segment_id, segment in enumerate(segment_lists):
+            # A singleton renders as a round blob and carries no mowing-path
+            # information. Wait until a stroke has at least two positions.
+            if len(segment) < 2:
+                continue
+            for raw_point in segment:
+                normalized = _trail_point(raw_point)
+                if normalized is None:
+                    continue
+                tagged.append([
+                    normalized[0],
+                    normalized[1],
+                    normalized[2],
+                    segment_id,
+                ])
+        return tagged
+
+    # Prefer fixed simplification levels. These preserve all confirmed bends
+    # and remain append-stable as new live telemetry arrives.
+    simplified_segments: list[list[object]] = []
+    for active_tail in (
+        TRAIL_ACTIVE_TAIL_METERS, 4.0, 8.0, 16.0, 32.0, 64.0
+    ):
+        simplified_segments = _simplified_segments(
+            TRAIL_SIMPLIFY_TOLERANCE_METERS, active_tail
+        )
+        if sum(len(segment) for segment in simplified_segments if len(segment) >= 2) <= limit:
+            return _tag_and_flatten(simplified_segments)
     for tolerance in (0.2, 0.35, 0.6, 1.0, 2.0):
-        compact = _simplified(tolerance, 64.0)
-        if len(compact) <= limit:
-            return compact
+        simplified_segments = _simplified_segments(tolerance, 64.0)
+        if sum(len(segment) for segment in simplified_segments if len(segment) >= 2) <= limit:
+            return _tag_and_flatten(simplified_segments)
 
-    # More than half the point budget made of independent zone/gap segments is
-    # malformed telemetry. Keep the entity recorder-safe even in that case.
-    return _evenly_sample(compact, limit)
+    # If an exceptionally long history still exceeds the recorder-safe budget,
+    # allocate that budget per real segment. Keep both endpoints of every
+    # retained segment and sample only *within* it. The former global sampler
+    # lost this boundary information, so its larger point spacing was mistaken
+    # for hundreds of new segments and rendered as isolated dots.
+    candidates = [
+        (segment_id, segment)
+        for segment_id, segment in enumerate(simplified_segments)
+        if len(segment) >= 2
+    ]
+    if not candidates or limit < 2:
+        return []
+
+    max_segments = max(1, limit // 2)
+    if len(candidates) > max_segments:
+        # Prefer substantial mowing strokes over isolated/noisy fragments, then
+        # restore chronological order for SVG rendering.
+        candidates = sorted(
+            candidates,
+            key=lambda item: (len(item[1]), item[0]),
+            reverse=True,
+        )[:max_segments]
+        candidates.sort(key=lambda item: item[0])
+
+    allocations = {segment_id: 2 for segment_id, _segment in candidates}
+    remaining = max(0, limit - 2 * len(candidates))
+    weights = {
+        segment_id: max(0, len(segment) - 2)
+        for segment_id, segment in candidates
+    }
+    total_weight = sum(weights.values())
+    if remaining and total_weight:
+        fractional: list[tuple[float, int]] = []
+        used = 0
+        for segment_id, segment in candidates:
+            exact = remaining * weights[segment_id] / total_weight
+            extra = min(len(segment) - 2, int(exact))
+            allocations[segment_id] += extra
+            used += extra
+            fractional.append((exact - int(exact), segment_id))
+        leftover = remaining - used
+        for _fraction, segment_id in sorted(fractional, reverse=True):
+            if leftover <= 0:
+                break
+            segment = next(
+                item for item_id, item in candidates if item_id == segment_id
+            )
+            if allocations[segment_id] < len(segment):
+                allocations[segment_id] += 1
+                leftover -= 1
+
+    compact_segments: list[list[object]] = []
+    original_ids: list[int] = []
+    for segment_id, segment in candidates:
+        compact_segments.append(
+            _evenly_sample(segment, allocations[segment_id])
+        )
+        original_ids.append(segment_id)
+
+    tagged: list[list[object]] = []
+    for compact_segment, segment_id in zip(
+        compact_segments, original_ids, strict=True
+    ):
+        for raw_point in compact_segment:
+            normalized = _trail_point(raw_point)
+            if normalized is None:
+                continue
+            tagged.append([
+                normalized[0],
+                normalized[1],
+                normalized[2],
+                segment_id,
+            ])
+    return tagged
 
 
 async def async_setup_entry(
@@ -412,6 +507,7 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 commands = []
                 previous = None
                 previous_zone = None
+                previous_segment = None
                 for point in _compact_trail(
                     live_trail, MAX_TRAIL_ATTRIBUTE_POINTS
                 ):
@@ -422,15 +518,24 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                     except (TypeError, ValueError):
                         continue
                     zone_id = self.coordinator._integer(point[2]) if len(point) >= 3 else None
-                    gap = False
-                    if previous is not None:
-                        gap = math.hypot(x0 - previous[0], y0 - previous[1]) > 2.5
-                    new_segment = not commands or gap or (zone_id is not None and previous_zone is not None and zone_id != previous_zone)
+                    segment_id = self.coordinator._integer(point[3]) if len(point) >= 4 else None
+                    if segment_id is not None:
+                        new_segment = not commands or segment_id != previous_segment
+                    else:
+                        gap = False
+                        if previous is not None:
+                            gap = math.hypot(x0 - previous[0], y0 - previous[1]) > 2.5
+                        new_segment = not commands or gap or (
+                            zone_id is not None
+                            and previous_zone is not None
+                            and zone_id != previous_zone
+                        )
                     commands.append(
                         f'{"M" if new_segment else "L"} {_px_v(x0):.1f} {_py_v(y0):.1f}'
                     )
                     previous = (x0, y0)
                     previous_zone = zone_id
+                    previous_segment = segment_id
                 live_trail_path = " ".join(commands)
 
                 lx = location.get("postureX")
@@ -774,11 +879,10 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         # Render the server path underneath the smoother MQTT/live layer. This
         # keeps coverage accurate even when the private pose endpoint repeats a
         # stale coordinate for several refreshes.
-        official_trail_svg = (
-            "".join(official_svg_parts)
-            if self._include_dynamic_overlays
-            else ""
-        )
+        # Navimow's server path archive contains sparse coverage and transfer
+        # points. Keep it available in diagnostics, but never paint it as
+        # blade-on coverage.
+        official_trail_svg = ""
         # Keep the standalone camera entity complete as well as exposing the
         # smoother attribute-based overlays used by the dashboard card. Camera
         # consumers that do not use the custom card still need the live
