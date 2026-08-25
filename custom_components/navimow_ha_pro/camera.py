@@ -238,6 +238,33 @@ def _compact_trail(points: list, limit: int) -> list:
         if sum(len(segment) for segment in simplified_segments if len(segment) >= 2) <= limit:
             return _tag_and_flatten(simplified_segments)
 
+    # Rebuild a short live tail with the original tight commit distance. The
+    # completed history may need aggressive simplification to fit Home
+    # Assistant's attribute budget, but the portion still following the mower
+    # must never inherit the 64 m historical tail. About 160 already-thinned
+    # samples is roughly the newest 16 m of travel.
+    if simplified_segments and thinned_segments:
+        live_source = thinned_segments[-1][-160:]
+        if len(live_source) >= 2:
+            live_tail = _simplify_trail_segment(
+                live_source,
+                TRAIL_SIMPLIFY_TOLERANCE_METERS,
+                TRAIL_ACTIVE_TAIL_METERS,
+            )
+            live_ids = {id(item[0]) for item in live_source[1:]}
+            historical_prefix = [
+                raw_point
+                for raw_point in simplified_segments[-1]
+                if id(raw_point) not in live_ids
+            ]
+            if (
+                historical_prefix
+                and live_tail
+                and historical_prefix[-1] == live_tail[0]
+            ):
+                live_tail = live_tail[1:]
+            simplified_segments[-1] = historical_prefix + live_tail
+
     # If an exceptionally long history still exceeds the recorder-safe budget,
     # allocate that budget per real segment. Keep both endpoints of every
     # retained segment and sample only *within* it. The former global sampler
@@ -263,9 +290,20 @@ def _compact_trail(points: list, limit: int) -> list:
         candidates.sort(key=lambda item: item[0])
 
     allocations = {segment_id: 2 for segment_id, _segment in candidates}
-    remaining = max(0, limit - 2 * len(candidates))
+
+    # Reserve enough detail for the newest active segment before distributing
+    # the rest across completed history. This normally keeps the entire rebuilt
+    # 16 m live tail, so its committed vertices never move on later updates.
+    newest_segment_id, newest_segment = candidates[-1]
+    live_reserve = min(
+        len(newest_segment),
+        max(2, min(120, limit // 3)),
+    )
+    allocations[newest_segment_id] = live_reserve
+
+    remaining = max(0, limit - sum(allocations.values()))
     weights = {
-        segment_id: max(0, len(segment) - 2)
+        segment_id: max(0, len(segment) - allocations[segment_id])
         for segment_id, segment in candidates
     }
     total_weight = sum(weights.values())
@@ -274,7 +312,10 @@ def _compact_trail(points: list, limit: int) -> list:
         used = 0
         for segment_id, segment in candidates:
             exact = remaining * weights[segment_id] / total_weight
-            extra = min(len(segment) - 2, int(exact))
+            extra = min(
+                len(segment) - allocations[segment_id],
+                int(exact),
+            )
             allocations[segment_id] += extra
             used += extra
             fractional.append((exact - int(exact), segment_id))
