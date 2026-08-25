@@ -8,6 +8,7 @@ import base64
 from homeassistant.components.camera import Camera
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.const import MATCH_ALL
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -23,7 +24,11 @@ VIEW = 800
 # X-series) can contain thousands of polygon/trail points, so expose a compact
 # overlay representation while keeping the full-resolution SVG camera image.
 MAX_ZONE_ATTRIBUTE_POINTS = 240
-MAX_TRAIL_ATTRIBUTE_POINTS = 300
+# Camera attributes are live rendering primitives, not historical state. Home
+# Assistant's supported unrecorded-attribute mechanism keeps them out of the
+# Recorder database, so the append-stable simplifier can retain enough vertices
+# to avoid reselecting committed mowing passes on every update.
+MAX_TRAIL_ATTRIBUTE_POINTS = 1600
 TRAIL_SIMPLIFY_TOLERANCE_METERS = 0.12
 TRAIL_ACTIVE_TAIL_METERS = 2.0
 TRAIL_INPUT_SPACING_METERS = 0.1
@@ -380,6 +385,10 @@ async def async_setup_entry(
 class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
     """A correctly scaled, persistent mower-coordinate map."""
 
+    # Map geometry, SVG paths, and the live pose change frequently and are only
+    # consumed by the bundled dashboard. Recording them provides no useful
+    # history and previously forced destructive 300-point compaction.
+    _unrecorded_attributes = frozenset({MATCH_ALL})
     _attr_has_entity_name = True
 
     def __init__(
