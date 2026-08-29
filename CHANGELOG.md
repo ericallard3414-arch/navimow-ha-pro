@@ -1,3 +1,9 @@
+## 0.7.32
+
+- Apply the card's Metric/Imperial preference to weekly and selected-zone area.
+- Convert from the Home Assistant area sensor's actual unit to avoid double conversion.
+- Bump the bundled frontend cache version so dashboards load the corrected area formatter.
+
 ## 0.7.23
 
 - Send telemetry-detected quarter-inch heights to the mower as numeric millimetres.
