@@ -915,7 +915,7 @@ class NavimowZoneDashboardCard extends HTMLElement {
     btn.disabled=!selected.length||!canLaunch;
     btn.textContent=this._commandBusy?'STARTING…':(selected.length===1?`▶ MOW ${selected[0].name.toUpperCase()}`:`▶ MOW ${selected.length} SELECTED ZONES`);
     const coverage=this._entity(this.config.coverage); const cz=coverage?.attributes?.zones||[]; const area=selected.reduce((sum,z)=>{const m=cz.find(x=>Number(x.id)===Number(z.id));return sum+(m?Number(m.area)||0:0)},0);
-    this.querySelector('#stateSub').textContent=selected.length?`${selected.map(z=>z.name).join(' + ')}${area?` · ${this._fmtArea(area*10.76391041671)}`:''}`:'Select the areas you want to mow';
+    this.querySelector('#stateSub').textContent=selected.length?`${selected.map(z=>z.name).join(' + ')}${area?` · ${this._formatArea(area,"m²")}`:''}`:'Select the areas you want to mow';
     const cam=this._entity(this.config.camera);
     if(cam) this._updateResumeControls(cam);
   }
