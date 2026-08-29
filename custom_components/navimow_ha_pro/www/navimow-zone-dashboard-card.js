@@ -169,6 +169,33 @@ class NavimowZoneDashboardCard extends HTMLElement {
 
   _heightUnit() { return this._usesImperialHeight() ? "in" : "mm"; }
 
+  _areaUnitIsSquareFeet(unit) {
+    return /^(ft(?:\^?2|²)|sq\.?\s*ft|square\s+feet)$/i.test(String(unit || "").trim());
+  }
+
+  _areaUnitIsAcres(unit) {
+    return /^(ac|acre|acres)$/i.test(String(unit || "").trim());
+  }
+
+  _areaToSquareMeters(value, entityOrUnit = "m²") {
+    const area = Number(value);
+    if (!Number.isFinite(area)) return NaN;
+    const unit = typeof entityOrUnit === "string"
+      ? entityOrUnit
+      : entityOrUnit?.attributes?.unit_of_measurement;
+    if (this._areaUnitIsSquareFeet(unit)) return area / 10.76391041671;
+    if (this._areaUnitIsAcres(unit)) return area * 4046.8564224;
+    return area;
+  }
+
+  _formatArea(value, entityOrUnit = "m²") {
+    const squareMeters = this._areaToSquareMeters(value, entityOrUnit);
+    if (!Number.isFinite(squareMeters)) return "—";
+    const imperial = this._usesImperialHeight();
+    const displayed = imperial ? squareMeters * 10.76391041671 : squareMeters;
+    return `${Math.round(displayed).toLocaleString()} ${imperial ? "ft²" : "m²"}`;
+  }
+
   _setHeightUnits(value) {
     if (!["auto", "metric", "imperial"].includes(value)) return;
     this._heightUnits = value;
@@ -505,8 +532,6 @@ class NavimowZoneDashboardCard extends HTMLElement {
     return cameraName||'Navimow';
   }
   _prettyState(v){ return String(v||'unknown').replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase()); }
-  _fmtArea(v){ const n=Number(v); return Number.isFinite(n) ? `${Math.round(n).toLocaleString()} ft²` : '—'; }
-
   _update(){
     const cam=this._entity(this.config.camera);
     if(!cam) return;
@@ -535,7 +560,8 @@ class NavimowZoneDashboardCard extends HTMLElement {
     const progress=this._state(this.config.progress,'unknown');
     this.querySelector('#progress').textContent=(progress==='unknown'||progress==='unavailable')?'—':`${Number(progress).toFixed(0)}%`;
     const pn=Number(progress); const pf=this.querySelector('#progressFill'); if(pf) pf.style.width=`${Number.isFinite(pn)?Math.max(0,Math.min(100,pn)):0}%`;
-    this.querySelector('#weekArea').textContent=this._fmtArea(this._state(this.config.week_area));
+    const weekArea=this._entity(this.config.week_area);
+    this.querySelector('#weekArea').textContent=this._formatArea(weekArea?.state,weekArea);
     const wm=this._entity(this.config.work_mode);
     const wmState=wm && !['unknown','unavailable'].includes(wm.state) ? wm.state : '—';
     this.querySelector('#workMode').textContent=wmState==='—'?'—':wmState.replace(' Mowing','');
