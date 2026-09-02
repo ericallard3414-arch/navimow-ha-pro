@@ -1,3 +1,8 @@
+## 0.7.33
+
+- Load the third-party mower SDK through Home Assistant's import executor to avoid blocking the event loop during integration setup.
+- Register the lifetime location watchdog as a config-entry background task so it no longer delays bootstrap and is cancelled automatically on unload.
+
 ## 0.7.32
 
 - Apply the card's Metric/Imperial preference to weekly and selected-zone area.
