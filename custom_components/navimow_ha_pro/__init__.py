@@ -61,6 +61,15 @@ _FRONTEND_CARD_VERSION = "0732"
 _FRONTEND_KEY = f"{DOMAIN}_frontend_registered"
 
 
+def _load_mower_sdk() -> tuple[Any, Any, Any]:
+    """Import the SDK outside Home Assistant's event loop."""
+    from mower_sdk.api import MowerAPI
+    from mower_sdk.errors import MowerAPIError
+    from mower_sdk.sdk import NavimowSDK
+
+    return MowerAPI, MowerAPIError, NavimowSDK
+
+
 async def _async_register_scheduler_frontend(hass: HomeAssistant) -> None:
     """Copy and auto-load the dependency-free scheduler Lovelace card."""
     if hass.data.get(_FRONTEND_KEY):
@@ -258,10 +267,11 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Navimow from a config entry."""
-    # 延迟导入 mower_sdk，避免在加载 config_flow 时触发依赖导入
-    from mower_sdk.api import MowerAPI
-    from mower_sdk.errors import MowerAPIError
-    from mower_sdk.sdk import NavimowSDK
+    # Keep the SDK lazy so config_flow does not import it, but perform the
+    # package-metadata/filesystem work in Home Assistant's import executor.
+    MowerAPI, MowerAPIError, NavimowSDK = (
+        await hass.async_add_import_executor_job(_load_mower_sdk)
+    )
     
     from .coordinator import NavimowCoordinator
     
@@ -903,7 +913,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await coordinator.async_config_entry_first_refresh()
             coordinators[device.id] = coordinator
 
-        location_watchdog_task = hass.async_create_task(_location_watchdog(sdk))
+        entry.async_create_background_task(
+            hass,
+            _location_watchdog(sdk),
+            name="navimow_location_watchdog",
+        )
 
         # 存储数据
         hass.data[DOMAIN][entry.entry_id] = {
@@ -916,7 +930,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "map_discovery": map_discovery,
             "private_client": private_client,
             "unload_flag": _unload_flag,
-            "location_watchdog_task": location_watchdog_task,
         }
 
         async_setup_services(hass)
@@ -949,9 +962,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             sdk = data.get("sdk")
             for coordinator in (data.get("coordinators") or {}).values():
                 coordinator.stop_background_tasks()
-            watchdog_task = data.get("location_watchdog_task")
-            if watchdog_task:
-                watchdog_task.cancel()
             if sdk:
                 try:
                     sdk.disconnect()
