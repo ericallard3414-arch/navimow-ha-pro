@@ -235,8 +235,13 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_refresh_cloud_geometry()
             await self._async_refresh_cloud_terrain()
             await self._async_refresh_private_telemetry(force_slow=True)
-            self._fast_settings_task = self.hass.async_create_task(
-                self._async_fast_settings_refresh()
+            # This is a lifetime polling loop, so it must be registered as a
+            # background task. Normal hass.async_create_task() tasks are tracked
+            # during startup and HA 2026.9 will wait for them to finish; this
+            # coroutine is intentionally infinite and therefore blocked startup.
+            self._fast_settings_task = self.hass.async_create_background_task(
+                self._async_fast_settings_refresh(),
+                f"{DOMAIN}_{self.device.id}_fast_settings_refresh",
             )
         await self._async_import_terrain_files()
         if self._discover_zones_from_payload(self._discovery_payloads):
@@ -498,9 +503,18 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             while True:
                 await asyncio.sleep(5.0)
                 try:
-                    set_list = await self.hass.async_add_executor_job(
-                        client.set_list, serial
+                    # Bound the coroutine-side wait so a stalled cloud request
+                    # cannot pin this poller indefinitely. The underlying client
+                    # still owns its socket timeout; this protects HA's task.
+                    async with asyncio.timeout(15.0):
+                        set_list = await self.hass.async_add_executor_job(
+                            client.set_list, serial
+                        )
+                except TimeoutError:
+                    _LOGGER.debug(
+                        "Fast private settings refresh timed out for %s", serial
                     )
+                    continue
                 except (NavimowError, OSError, ValueError, json.JSONDecodeError) as err:
                     _LOGGER.debug(
                         "Fast private settings refresh failed for %s: %s",
@@ -2458,7 +2472,11 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return client.location(serial, vehicle_type)
 
         try:
-            payload = await self.hass.async_add_executor_job(_fetch)
+            async with asyncio.timeout(15.0):
+                payload = await self.hass.async_add_executor_job(_fetch)
+        except TimeoutError:
+            _LOGGER.debug("Fast private location refresh timed out for %s", serial)
+            return False
         except (NavimowError, OSError, ValueError, json.JSONDecodeError) as err:
             _LOGGER.debug("Fast private location refresh failed for %s: %s", serial, err)
             return False
@@ -2521,8 +2539,12 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self._fast_location_last_signature = None
         self._fast_location_stale_count = 0
-        self._fast_location_task = self.hass.async_create_task(
-            self._async_fast_location_bootstrap()
+        # The bootstrap can live for up to two minutes and should never be
+        # counted as startup work. Register it as background work so HA does not
+        # wait for it during setup/reload.
+        self._fast_location_task = self.hass.async_create_background_task(
+            self._async_fast_location_bootstrap(),
+            f"{DOMAIN}_{self.device.id}_fast_location_bootstrap",
         )
 
     async def async_mow_zones(
