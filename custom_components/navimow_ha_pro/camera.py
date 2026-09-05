@@ -421,11 +421,20 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             # Keep it active and addressable, but out of normal device views.
             self._attr_entity_registry_visible_default = False
         self.content_type = "image/svg+xml"
+        # Trail compaction is CPU-heavy on large mowing histories. Keep it out
+        # of extra_state_attributes because HA reads entity properties on the
+        # event loop.
+        self._cached_compact_trail: list = []
+        self._trail_cache_key: tuple | None = None
+        self._trail_cache_task = None
 
     async def async_added_to_hass(self) -> None:
         """Hide an already-registered internal background camera."""
         await super().async_added_to_hass()
-        if self._include_dynamic_overlays or not self.entity_id:
+        if self._include_dynamic_overlays:
+            self._schedule_trail_cache_refresh()
+            return
+        if not self.entity_id:
             return
         registry = er.async_get(self.hass)
         entry = registry.async_get(self.entity_id)
@@ -441,6 +450,77 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             updates["device_id"] = None
         if updates:
             registry.async_update_entity(self.entity_id, **updates)
+
+    @staticmethod
+    def _make_trail_cache_key(points: list) -> tuple:
+        """Return a cheap signature that changes when the live trail changes."""
+        length = len(points)
+        if not length:
+            return (0,)
+        indexes = sorted({
+            0,
+            length // 4,
+            length // 2,
+            (3 * length) // 4,
+            length - 1,
+        })
+        samples = []
+        for index in indexes:
+            point = points[index]
+            if isinstance(point, (list, tuple)):
+                samples.append(tuple(str(value) for value in point[:4]))
+            else:
+                samples.append((repr(point),))
+        return (length, *samples)
+
+    def _schedule_trail_cache_refresh(self) -> None:
+        """Schedule heavy trail compaction outside the HA event loop."""
+        if not self._include_dynamic_overlays:
+            return
+        trail = self.coordinator.get_trail() or []
+        key = self._make_trail_cache_key(trail)
+        if key == self._trail_cache_key:
+            return
+        if self._trail_cache_task is not None and not self._trail_cache_task.done():
+            return
+        self._trail_cache_task = self.hass.async_create_background_task(
+            self._async_refresh_trail_cache(),
+            f"{DOMAIN}_{self.coordinator.device.id}_trail_cache",
+        )
+
+    async def _async_refresh_trail_cache(self) -> None:
+        """Compact the newest trail snapshot in an executor and cache it."""
+        try:
+            trail = list(self.coordinator.get_trail() or [])
+            key = self._make_trail_cache_key(trail)
+            compact = await self.hass.async_add_executor_job(
+                _compact_trail,
+                trail,
+                MAX_TRAIL_ATTRIBUTE_POINTS,
+            )
+            self._cached_compact_trail = compact
+            self._trail_cache_key = key
+        finally:
+            self._trail_cache_task = None
+
+        if self.entity_id:
+            self.async_write_ha_state()
+
+        current = self.coordinator.get_trail() or []
+        if self._make_trail_cache_key(current) != self._trail_cache_key:
+            self._schedule_trail_cache_refresh()
+
+    def _handle_coordinator_update(self) -> None:
+        """Prepare trail cache before the normal coordinator state write."""
+        self._schedule_trail_cache_refresh()
+        super()._handle_coordinator_update()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel the trail cache task when the entity unloads."""
+        task = self._trail_cache_task
+        if task is not None and not task.done():
+            task.cancel()
+        await super().async_will_remove_from_hass()
 
     def _display_location(self, geometry: dict) -> dict:
         """Return the live pose, pinned to the charging pile while docked.
@@ -558,9 +638,8 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 previous = None
                 previous_zone = None
                 previous_segment = None
-                for point in _compact_trail(
-                    live_trail, MAX_TRAIL_ATTRIBUTE_POINTS
-                ):
+                # Compaction is prepared asynchronously in an executor.
+                for point in self._cached_compact_trail:
                     if not isinstance(point, (list, tuple)) or len(point) < 2:
                         continue
                     try:
