@@ -1,4 +1,4 @@
-## 0.7.34
+## 0.9.0
 
 - Build the complete live-camera attribute payload in an executor and return a cached value from `extra_state_attributes`.
 - Coalesce rapid coordinator updates while a camera cache refresh is already running.
