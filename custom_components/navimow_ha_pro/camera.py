@@ -427,6 +427,8 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         self._cached_compact_trail: list = []
         self._trail_cache_key: tuple | None = None
         self._trail_cache_task = None
+        self._attribute_cache_pending = True
+        self._cached_live_attributes: dict[str, object] = {}
 
     async def async_added_to_hass(self) -> None:
         """Hide an already-registered internal background camera."""
@@ -474,13 +476,10 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         return (length, *samples)
 
     def _schedule_trail_cache_refresh(self) -> None:
-        """Schedule heavy trail compaction outside the HA event loop."""
+        """Schedule heavy camera-attribute work outside the HA event loop."""
         if not self._include_dynamic_overlays:
             return
-        trail = self.coordinator.get_trail() or []
-        key = self._make_trail_cache_key(trail)
-        if key == self._trail_cache_key:
-            return
+        self._attribute_cache_pending = True
         if self._trail_cache_task is not None and not self._trail_cache_task.done():
             return
         self._trail_cache_task = self.hass.async_create_background_task(
@@ -489,17 +488,22 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         )
 
     async def _async_refresh_trail_cache(self) -> None:
-        """Compact the newest trail snapshot in an executor and cache it."""
+        """Build the complete live attribute payload outside the event loop."""
         try:
-            trail = list(self.coordinator.get_trail() or [])
-            key = self._make_trail_cache_key(trail)
-            compact = await self.hass.async_add_executor_job(
-                _compact_trail,
-                trail,
-                MAX_TRAIL_ATTRIBUTE_POINTS,
-            )
-            self._cached_compact_trail = compact
-            self._trail_cache_key = key
+            while self._attribute_cache_pending:
+                self._attribute_cache_pending = False
+                trail = list(self.coordinator.get_trail() or [])
+                key = self._make_trail_cache_key(trail)
+                if key != self._trail_cache_key:
+                    self._cached_compact_trail = await self.hass.async_add_executor_job(
+                        _compact_trail,
+                        trail,
+                        MAX_TRAIL_ATTRIBUTE_POINTS,
+                    )
+                    self._trail_cache_key = key
+                self._cached_live_attributes = await self.hass.async_add_executor_job(
+                    self._build_live_attributes
+                )
         finally:
             self._trail_cache_task = None
 
@@ -507,13 +511,17 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             self.async_write_ha_state()
 
         current = self.coordinator.get_trail() or []
-        if self._make_trail_cache_key(current) != self._trail_cache_key:
+        if (
+            self._attribute_cache_pending
+            or self._make_trail_cache_key(current) != self._trail_cache_key
+        ):
             self._schedule_trail_cache_refresh()
 
     def _handle_coordinator_update(self) -> None:
-        """Prepare trail cache before the normal coordinator state write."""
+        """Coalesce updates and publish after cached attributes are ready."""
         self._schedule_trail_cache_refresh()
-        super()._handle_coordinator_update()
+        if not self._include_dynamic_overlays:
+            super()._handle_coordinator_update()
 
     async def async_will_remove_from_hass(self) -> None:
         """Cancel the trail cache task when the entity unloads."""
@@ -549,11 +557,16 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        """Expose compact map geometry for the interactive Lovelace zone card."""
+        """Return prebuilt attributes without blocking Home Assistant's loop."""
         # The background entity only supplies an SVG image. Duplicating the live
         # geometry/trail attributes here caused two >16 KiB Recorder warnings.
         if not self._include_dynamic_overlays:
             return {"camera_overlays_baked": False}
+
+        return self._cached_live_attributes
+
+    def _build_live_attributes(self) -> dict[str, object]:
+        """Build compact map attributes in an executor worker."""
 
         geometry = self.coordinator.get_map_geometry() or {}
         raw_zones = geometry.get("zones") or []
