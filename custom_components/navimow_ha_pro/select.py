@@ -79,6 +79,18 @@ SETTING_SELECTS = (
         True,
         True,
     ),
+    SettingSelect(
+        "edge_sense_mode",
+        "EdgeSense mode",
+        "mdi:vector-line",
+        "edgeSenselevel",
+        {
+            "Standard": 0,
+            "Cautious": 1,
+            "Extreme": 2,
+        },
+        True,
+    ),
 )
 
 
