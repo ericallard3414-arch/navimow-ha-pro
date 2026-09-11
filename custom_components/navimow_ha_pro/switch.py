@@ -33,7 +33,8 @@ class Setting:
 
 SETTINGS = (
     Setting("schedule_enabled", "Mowing schedule", "mdi:calendar-check", "startPlan", robot_numeric=False),
-    Setting("night_mow", "Night light", "mdi:weather-night", "nightMowSwitch", numeric=True),
+    Setting("night_mow", "Mowing at night", "mdi:weather-night", "nightMowSwitch", numeric=True),
+    Setting("night_light", "Night light", "mdi:lightbulb-night-outline", "lightSwitch", numeric=True),
     Setting("rain_sensor", "Rain sensor", "mdi:weather-rainy", "rainSensor", iot=False),
     Setting("rain_detection", "Rain detection", "mdi:weather-pouring", "rainDetectionSwitch", iot=False),
     Setting("sound", "Sound", "mdi:volume-high", "soundSwitch", robot_numeric=False),
@@ -51,6 +52,7 @@ SETTINGS = (
     Setting("rain_forecast", "Rain forecast", "mdi:weather-cloudy-alert", "weatherSwitch", numeric=True),
     Setting("delay_on_rain", "Delay on rain", "mdi:timer-sand", "delayedPileSwitch", numeric=True),
     Setting("animal_friendly", "Animal-friendly", "mdi:paw", "animalProtection", numeric=True, assumed=True, gate_key="obstacle_avoidance"),
+    Setting("edge_sense", "EdgeSense", "mdi:vector-line", "edgeSense", numeric=True),
 )
 
 
