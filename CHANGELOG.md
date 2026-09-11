@@ -1,3 +1,11 @@
+## 0.7.34
+
+- Build the complete live-camera attribute payload in an executor and return a cached value from `extra_state_attributes`.
+- Coalesce rapid coordinator updates while a camera cache refresh is already running.
+- Preserve the existing 1,600-point append-stable trail and all map geometry while avoiding Home Assistant slow state-update warnings.
+- Correctly separate Mowing at night (`nightMowSwitch`) from Night light (`lightSwitch`).
+- Add feature-detected EdgeSense and EdgeSense mode controls when the mower reports `edgeSense` / `edgeSenselevel`.
+
 ## 0.7.33
 
 - Load the third-party mower SDK through Home Assistant's import executor to avoid blocking the event loop during integration setup.
