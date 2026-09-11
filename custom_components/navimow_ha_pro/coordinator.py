@@ -767,6 +767,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         setting_specs = {
             "schedule_enabled": ("startPlan", "start_plan"),
             "night_mow": ("nightMowSwitch", "night_mow_switch"),
+            "night_light": ("lightSwitch", "light_switch"),
             "rain_sensor": ("rainSensor", "rain_sensor"),
             "rain_detection": ("rainDetectionSwitch", "rain_detection_switch"),
             "sound": ("soundSwitch", "sound_switch"),
@@ -783,6 +784,7 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "traction_control": ("tractionControl", "traction_control"),
             "rain_forecast": ("weatherSwitch", "weather_switch"),
             "delay_on_rain": ("delayedPileSwitch", "delayed_pile_switch"),
+            "edge_sense": ("edgeSense", "edge_sense"),
         }
         settings = {
             name: boolean(self._private_find(set_list, *keys))
@@ -798,6 +800,9 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Captured from the official app: Precision/Standard/Efficient is stored
             # in MowerSettingBean ``mode`` (values 2/4/3 respectively).
             "work_mode": self._integer(self._private_find(set_list, "mode")),
+            "edge_sense_mode": self._integer(
+                self._private_find(set_list, "edgeSenselevel", "edge_sense_level")
+            ),
         })
         # Navimow's set-list endpoint can lag a successful write by several
         # seconds.  While a value is pending, ignore that stale snapshot.  The
