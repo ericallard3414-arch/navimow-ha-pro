@@ -1,57 +1,45 @@
 {
   "config": {
     "step": {
-      "oauth2_authorize": {
-        "description": "Click 'Confirm' to authorize Home Assistant to access your Navimow account.\n\nYou will be redirected to the Navimow login page to complete authentication."
-      },
-      "user": {
-        "title": "Navimow Integration Configuration",
-        "description": "Configure Navimow lawn mower integration"
-      },
-      "reauth_confirm": {
-        "title": "Re-authentication Required",
-        "description": "Your Navimow authentication has expired. Please re-authenticate to continue using the integration."
-      },
-      "private_login": {
-        "title": "Complete Navimow setup",
-        "description": "Enable automatic LiDAR maps, zones, telemetry and advanced controls. Your password is used only to obtain renewable tokens and is not stored.",
-        "data": {
-          "lidar_cloud_enabled": "Enable automatic maps and advanced controls",
-          "email": "Navimow account email",
-          "password": "Navimow account password"
-        }
-      }
+      "oauth2_authorize": {"description": "Click 'Confirm' to authorize Home Assistant to access your Navimow account.\n\nYou will be redirected to the Navimow login page to complete authentication."},
+      "user": {"title": "Navimow Integration Configuration", "description": "Configure Navimow lawn mower integration"},
+      "reauth_confirm": {"title": "Re-authentication Required", "description": "Your Navimow authentication has expired. Please re-authenticate to continue using the integration."},
+      "private_login": {"title": "Complete Navimow setup", "description": "Enable automatic LiDAR maps, zones, telemetry and advanced controls. Your password is used only to obtain renewable tokens and is not stored.", "data": {"lidar_cloud_enabled": "Enable automatic maps and advanced controls", "email": "Navimow account email", "password": "Navimow account password"}}
     },
     "error": {
-      "authorization_failed": "Authorization failed. Please try again.",
-      "token_exchange_failed": "Failed to exchange authorization code for token.",
-      "callback_failed": "Failed to process OAuth2 callback.",
-      "cannot_connect": "Unable to connect to Navimow service.",
-      "invalid_auth": "Authentication failed. Please check your configuration.",
-      "lidar_credentials_required": "Enter your Navimow email and password, or disable automatic maps and advanced controls.",
-      "lidar_invalid_auth": "Navimow rejected the private-cloud login. Check the email and password.",
-      "unknown": "An unknown error occurred.",
-      "missing_config": "Missing configuration. Please configure CLIENT_ID and CLIENT_SECRET in const.py."
+      "authorization_failed": "Authorization failed. Please try again.", "token_exchange_failed": "Failed to exchange authorization code for token.", "callback_failed": "Failed to process OAuth2 callback.", "cannot_connect": "Unable to connect to Navimow service.", "invalid_auth": "Authentication failed. Please check your configuration.", "lidar_credentials_required": "Enter your Navimow email and password, or disable automatic maps and advanced controls.", "lidar_invalid_auth": "Navimow rejected the private-cloud login. Check the email and password.", "unknown": "An unknown error occurred.", "missing_config": "Missing configuration. Please configure CLIENT_ID and CLIENT_SECRET in const.py."
     },
-    "abort": {
-      "single_instance_allowed": "Only one Navimow instance is allowed.",
-      "already_configured": "Navimow is already configured.",
-      "reauth_successful": "Re-authentication successful."
-    }
+    "abort": {"single_instance_allowed": "Only one Navimow instance is allowed.", "already_configured": "Navimow is already configured.", "reauth_successful": "Re-authentication successful."}
   },
   "options": {
-    "step": {
-      "init": {
-        "title": "Navimow Options",
-        "description": "Configure Navimow integration options"
-      }
-    }
+    "step": {"init": {"title": "Navimow Options", "description": "Configure Navimow integration options"}},
+    "error": {"lidar_credentials_required": "Enter your Navimow email and password to enable automatic LiDAR maps.", "lidar_invalid_auth": "Navimow rejected the LiDAR cloud login. Check the email and password.", "cannot_connect": "Could not reach the Navimow cloud.", "unknown": "LiDAR cloud setup failed unexpectedly. Check the Home Assistant log."}
   },
   "entity": {
     "sensor": {
-      "battery": {
-        "name": "Battery"
-      }
-    }
+      "battery": {"name": "Battery"}, "mowing_progress": {"name": "Mowing progress"}, "position_x": {"name": "Position X"}, "position_y": {"name": "Position Y"}, "heading": {"name": "Heading"}, "target_zone": {"name": "Target zone"}, "mowing_zone": {"name": "Current mowing zone"}, "route_progress_raw": {"name": "Route progress"}, "coverage": {"name": "Coverage"}, "session_area": {"name": "Session area"}, "weekly_area": {"name": "Area this week"}, "total_area": {"name": "Total area"}, "schedule": {"name": "Schedule"}, "status": {"name": "Status"}, "problem": {"name": "Problem"}, "online": {"name": "Online"}, "state_code": {"name": "State code"}, "wifi_signal": {"name": "Wi-Fi signal"}, "blades_life": {"name": "Blades life"}, "chassis_life": {"name": "Chassis life"}
+    },
+    "binary_sensor": {"problem": {"name": "Problem"}, "online": {"name": "Online"}, "docked": {"name": "Docked"}},
+    "calendar": {"schedule": {"name": "Schedule"}},
+    "camera": {"live_map": {"name": "Live mowing map"}, "map_background": {"name": "Map background"}},
+    "select": {
+      "prepared_zone": {"name": "Prepared mowing zone"},
+      "night_light_level": {"name": "Night light brightness", "state": {"dim": "Dimmed", "very_dim": "Very dim"}},
+      "weather_sensitivity": {"name": "Rain sensitivity", "state": {"drizzle": "Drizzle", "light_rain": "Light rain", "moderate": "Moderate rain"}},
+      "work_mode": {"name": "Work mode", "state": {"precision_mowing": "Precision", "standard_mowing": "Standard", "efficient_mowing": "Efficient"}},
+      "edge_sense_mode": {"name": "EdgeSense mode", "state": {"standard": "Standard", "cautious": "Cautious", "extreme": "Extreme"}}
+    },
+    "number": {"return_battery_level": {"name": "Return-to-dock battery threshold"}, "charging_limit": {"name": "Charging limit"}, "rain_delay_time": {"name": "Rain delay time"}, "cut_height": {"name": "Cutting height"}},
+    "switch": {
+      "schedule_enabled": {"name": "Schedule enabled"}, "night_mow": {"name": "Night mowing"}, "night_light": {"name": "Night light"}, "rain_sensor": {"name": "Rain sensor"}, "rain_detection": {"name": "Automatic rain pause"}, "sound": {"name": "Sound"}, "power_saving": {"name": "Power saving mode"}, "child_lock": {"name": "Child lock"}, "lift_alarm": {"name": "Lift alarm"}, "mowing_cycle": {"name": "Mowing cycle"}, "frost_delay": {"name": "Frost delay"}, "snow_delay": {"name": "Snow delay"}, "strong_wind_delay": {"name": "Strong wind delay"}, "high_temp_delay": {"name": "High temperature delay"}, "efls": {"name": "Camera positioning (EFLS)"}, "obstacle_avoidance": {"name": "Obstacle avoidance"}, "traction_control": {"name": "Traction control"}, "rain_forecast": {"name": "Rain pause based on weather forecast"}, "delay_on_rain": {"name": "Wait time after rain"}, "animal_friendly": {"name": "Animal-friendly mode"}, "edge_sense": {"name": "Edge sensing"}
+    },
+    "button": {"mow_prepared_zone": {"name": "Mow prepared zone"}},
+    "text": {"zone_name": {"name": "Zone name"}}
+  },
+  "services": {
+    "set_zone_name": {"name": "Set zone name", "description": "Register a known partition ID or assign it a friendly name.", "fields": {"mower_id": {"name": "Mower ID", "description": "Required only when more than one mower is configured. Accepts its cloud ID, serial number, or name."}, "partition_id": {"name": "Partition ID", "description": "The exact numeric partition previously shown by the Target zone or Current mowing zone sensor."}, "name": {"name": "Friendly zone name", "description": "The name displayed by the Prepared mowing zone selector."}}},
+    "start_prepared_zone_experimental": {"name": "Start prepared zone (experimental)", "description": "Sends exactly one experimental official smart-home command. The server may ignore the selected zone and mow all zones.", "fields": {"mower_id": {"name": "Mower ID", "description": "Required only when more than one mower is configured. Accepts its cloud ID, serial number, or name."}, "confirm_all_zone_risk": {"name": "I accept the all-zone start risk", "description": "Required confirmation that Navimow may ignore the prepared zone and start mowing the entire map."}}},
+    "mow": {"name": "Mow selected zones", "description": "Start mowing one or more map zones in the exact order supplied. Can restart from scratch or continue existing progress.", "fields": {"device_id": {"name": "Mower", "description": "Optional when only one mower is configured."}, "zones": {"name": "Zones", "description": "Numeric partition IDs in the desired mowing order."}, "reset": {"name": "Restart from scratch", "description": "When enabled, clear previous mowing progress and start a fresh trail. Disable to continue the remaining uncut area."}}},
+    "set_schedule": {"name": "Set mowing schedule", "description": "Save one weekday's mowing periods and selected zones.", "fields": {"device_id": {"name": "Mower", "description": "Optional when only one mower is configured."}, "day": {"name": "Day"}, "enabled": {"name": "Enabled"}, "periods": {"name": "Periods", "description": "List of start/end times and optional numeric zone IDs. The scheduler card builds this automatically."}}}
   }
 }

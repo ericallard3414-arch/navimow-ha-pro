@@ -1,4 +1,4 @@
-"""Button platform for verified Navimow private-cloud actions."""
+"""Button platform for Navimow HA Pro."""
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity
@@ -15,31 +15,39 @@ from .coordinator import NavimowCoordinator
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up one selected-zone mow button per mower."""
-    data = hass.data[DOMAIN][config_entry.entry_id]
+    data = hass.data[DOMAIN][entry.entry_id]
     coordinators: dict[str, NavimowCoordinator] = data["coordinators"]
+
     async_add_entities(
-        NavimowMowPreparedZoneButton(coordinator)
+        NavimowPreparedZoneButton(coordinator)
         for coordinator in coordinators.values()
     )
 
 
-class NavimowMowPreparedZoneButton(
-    CoordinatorEntity[NavimowCoordinator], ButtonEntity
+class NavimowPreparedZoneButton(
+    CoordinatorEntity[NavimowCoordinator],
+    ButtonEntity,
 ):
-    """Start only the partition chosen in Prepared mowing zone."""
+    """Button to start mowing the prepared zone."""
 
     _attr_has_entity_name = True
-    _attr_name = "Mow prepared zone"
+    _attr_translation_key = "mow_prepared_zone"
     _attr_icon = "mdi:play-circle-outline"
 
-    def __init__(self, coordinator: NavimowCoordinator) -> None:
+    def __init__(
+        self,
+        coordinator: NavimowCoordinator,
+    ) -> None:
         super().__init__(coordinator)
+
         device = coordinator.device
-        self._attr_unique_id = f"{DOMAIN}_{device.id}_mow_prepared_zone"
+        self._attr_unique_id = (
+            f"{DOMAIN}_{device.id}_mow_prepared_zone"
+        )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device.id)},
             name=device.name,
@@ -52,10 +60,13 @@ class NavimowMowPreparedZoneButton(
     @property
     def available(self) -> bool:
         """Enable only when a valid mapped partition is prepared."""
-        return super().available and self.coordinator.can_mow_prepared_zone()
+        return (
+            super().available
+            and self.coordinator.can_mow_prepared_zone()
+        )
 
     async def async_press(self) -> None:
-        """Clear prior progress and start the selected partition."""
+        """Start mowing the prepared zone."""
         try:
             await self.coordinator.async_mow_prepared_zone()
         except ValueError as err:
