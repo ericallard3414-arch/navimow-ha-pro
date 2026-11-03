@@ -1,3 +1,7 @@
+## Unreleased
+
+- Send X-series cutting heights to the mower as numeric millimetres, not just quarter-inch decks. A metric X450 parsed the hexadecimal text as decimal: 80 mm became 50 mm, and 55 mm (`"37"`) was silently ignored.
+
 ## 0.9.0
 
 - Build the complete live-camera attribute payload in an executor and return a cached value from `extra_state_attributes`.
