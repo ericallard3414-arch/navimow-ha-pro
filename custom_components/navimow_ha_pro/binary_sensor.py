@@ -50,10 +50,15 @@ BINARY_SENSORS: tuple[NavimowBinaryDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: NavimowCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(NavimowBinarySensor(coordinator, desc) for desc in BINARY_SENSORS)
+    async_add_entities(
+        NavimowBinarySensor(coordinator, desc)
+        for desc in BINARY_SENSORS
+    )
 
 
 class NavimowBinarySensor(NavimowEntity, BinarySensorEntity):
@@ -62,7 +67,9 @@ class NavimowBinarySensor(NavimowEntity, BinarySensorEntity):
     entity_description: NavimowBinaryDescription
 
     def __init__(
-        self, coordinator: NavimowCoordinator, description: NavimowBinaryDescription
+        self,
+        coordinator: NavimowCoordinator,
+        description: NavimowBinaryDescription,
     ) -> None:
         super().__init__(coordinator, description.key)
         self.entity_description = description

@@ -24,6 +24,7 @@ VIEW = 800
 # X-series) can contain thousands of polygon/trail points, so expose a compact
 # overlay representation while keeping the full-resolution SVG camera image.
 MAX_ZONE_ATTRIBUTE_POINTS = 240
+
 # Camera attributes are live rendering primitives, not historical state. Home
 # Assistant's supported unrecorded-attribute mechanism keeps them out of the
 # Recorder database, so the append-stable simplifier can retain enough vertices
@@ -36,8 +37,15 @@ TRAIL_INPUT_SPACING_METERS = 0.1
 
 def _mower_marker_family(model: object) -> str:
     """Return the visual marker family for a Navimow model name."""
-    normalized = "".join(character for character in str(model or "").lower() if character.isalnum())
-    if any(model_code in normalized for model_code in ("x420", "x430", "x450")):
+    normalized = "".join(
+        character
+        for character in str(model or "").lower()
+        if character.isalnum()
+    )
+    if any(
+        model_code in normalized
+        for model_code in ("x420", "x430", "x450")
+    ):
         return "x4"
     return "standard"
 
@@ -48,29 +56,47 @@ def _evenly_sample(points: list, limit: int) -> list:
         return list(points)
     if limit <= 1:
         return [points[-1]]
+
     last = len(points) - 1
-    indexes = {round(index * last / (limit - 1)) for index in range(limit)}
+    indexes = {
+        round(index * last / (limit - 1))
+        for index in range(limit)
+    }
     return [points[index] for index in sorted(indexes)]
 
 
-def _compact_map_points(points: list, limit: int) -> list[list[float]]:
+def _compact_map_points(
+    points: list,
+    limit: int,
+) -> list[list[float]]:
     """Compact map geometry and round coordinates for small state attributes."""
     compact = _evenly_sample(points, max(3, limit))
     result = []
+
     for point in compact:
         if not isinstance(point, (list, tuple)) or len(point) < 2:
             continue
+
         try:
-            result.append([round(float(point[0]), 3), round(float(point[1]), 3)])
+            result.append(
+                [
+                    round(float(point[0]), 3),
+                    round(float(point[1]), 3),
+                ]
+            )
         except (TypeError, ValueError):
             continue
+
     return result
 
 
-def _trail_point(point: object) -> tuple[float, float, object] | None:
+def _trail_point(
+    point: object,
+) -> tuple[float, float, object] | None:
     """Return a normalized trail point, or None for malformed input."""
     if not isinstance(point, (list, tuple)) or len(point) < 2:
         return None
+
     try:
         return (
             float(point[0]),
@@ -90,14 +116,20 @@ def _distance_to_line(
     dx = end[0] - start[0]
     dy = end[1] - start[1]
     length = math.hypot(dx, dy)
+
     if length <= 1e-9:
-        return math.hypot(point[0] - start[0], point[1] - start[1])
+        return math.hypot(
+            point[0] - start[0],
+            point[1] - start[1],
+        )
+
     numerator = abs(
         dy * point[0]
         - dx * point[1]
         + end[0] * start[1]
         - end[1] * start[0]
     )
+
     return numerator / length
 
 
@@ -119,17 +151,29 @@ def _simplify_trail_segment(
 
     result = [points[0][0]]
     buffer = [points[0]]
+
     for item in points[1:]:
         buffer.append(item)
+
         while len(buffer) > 2:
             start = buffer[0][1]
             end = buffer[-1][1]
+
             deviations = [
-                _distance_to_line(candidate[1], start, end)
+                _distance_to_line(
+                    candidate[1],
+                    start,
+                    end,
+                )
                 for candidate in buffer[1:-1]
             ]
+
             greatest = max(deviations, default=0.0)
-            span = math.hypot(end[0] - start[0], end[1] - start[1])
+            span = math.hypot(
+                end[0] - start[0],
+                end[1] - start[1],
+            )
+
             if greatest <= tolerance and span <= active_tail:
                 break
 
@@ -139,11 +183,17 @@ def _simplify_trail_segment(
                 # The line is straight, but freeze it in bounded pieces so GPS
                 # jitter can move no more than the short active tail behind mower.
                 commit_index = len(buffer) - 2
+
                 for index in range(1, len(buffer) - 1):
                     candidate = buffer[index][1]
-                    if math.hypot(
-                        candidate[0] - start[0], candidate[1] - start[1]
-                    ) >= active_tail:
+
+                    if (
+                        math.hypot(
+                            candidate[0] - start[0],
+                            candidate[1] - start[1],
+                        )
+                        >= active_tail
+                    ):
                         commit_index = max(1, index - 1)
                         break
 
@@ -152,95 +202,177 @@ def _simplify_trail_segment(
 
     if result[-1] is not buffer[-1][0]:
         result.append(buffer[-1][0])
+
     return result
 
 
-def _compact_trail(points: list, limit: int) -> list:
+def _compact_trail(
+    points: list,
+    limit: int,
+) -> list:
     """Compact a trail without losing its original segment boundaries.
 
     Every returned point includes a temporary fourth value containing the
     source segment number. The Lovelace path builder uses that marker instead
     of re-inferring breaks from the distance between compacted points.
     """
-    segments: list[list[tuple[object, tuple[float, float, object]]]] = []
-    current: list[tuple[object, tuple[float, float, object]]] = []
+    segments: list[
+        list[tuple[object, tuple[float, float, object]]]
+    ] = []
+
+    current: list[
+        tuple[object, tuple[float, float, object]]
+    ] = []
+
     previous: tuple[float, float, object] | None = None
+
     for raw_point in points:
         point = _trail_point(raw_point)
+
         if point is None:
             continue
-        gap = previous is not None and math.hypot(
-            point[0] - previous[0], point[1] - previous[1]
-        ) > 2.5
-        zone_changed = previous is not None and point[2] != previous[2]
+
+        gap = (
+            previous is not None
+            and math.hypot(
+                point[0] - previous[0],
+                point[1] - previous[1],
+            )
+            > 2.5
+        )
+
+        zone_changed = (
+            previous is not None
+            and point[2] != previous[2]
+        )
+
         if current and (gap or zone_changed):
             segments.append(current)
             current = []
+
         current.append((raw_point, point))
         previous = point
+
     if current:
         segments.append(current)
 
     # Thin redundant high-frequency samples independently inside each real
     # segment. Never sample across a zone/session break.
     thinned_segments = []
+
     for segment in segments:
         if len(segment) <= 2:
             thinned_segments.append(segment)
             continue
+
         thinned = [segment[0]]
+
         for item in segment[1:-1]:
             previous_kept = thinned[-1][1]
             point = item[1]
-            if math.hypot(
-                point[0] - previous_kept[0], point[1] - previous_kept[1]
-            ) >= TRAIL_INPUT_SPACING_METERS:
+
+            if (
+                math.hypot(
+                    point[0] - previous_kept[0],
+                    point[1] - previous_kept[1],
+                )
+                >= TRAIL_INPUT_SPACING_METERS
+            ):
                 thinned.append(item)
+
         if thinned[-1][0] is not segment[-1][0]:
             thinned.append(segment[-1])
+
         thinned_segments.append(thinned)
 
     def _simplified_segments(
-        tolerance: float, active_tail: float
+        tolerance: float,
+        active_tail: float,
     ) -> list[list[object]]:
         return [
-            _simplify_trail_segment(segment, tolerance, active_tail)
+            _simplify_trail_segment(
+                segment,
+                tolerance,
+                active_tail,
+            )
             for segment in thinned_segments
         ]
 
-    def _tag_and_flatten(segment_lists: list[list[object]]) -> list[list[object]]:
+    def _tag_and_flatten(
+        segment_lists: list[list[object]],
+    ) -> list[list[object]]:
         tagged: list[list[object]] = []
+
         for segment_id, segment in enumerate(segment_lists):
             # A singleton renders as a round blob and carries no mowing-path
             # information. Wait until a stroke has at least two positions.
             if len(segment) < 2:
                 continue
+
             for raw_point in segment:
                 normalized = _trail_point(raw_point)
+
                 if normalized is None:
                     continue
-                tagged.append([
-                    normalized[0],
-                    normalized[1],
-                    normalized[2],
-                    segment_id,
-                ])
+
+                tagged.append(
+                    [
+                        normalized[0],
+                        normalized[1],
+                        normalized[2],
+                        segment_id,
+                    ]
+                )
+
         return tagged
 
     # Prefer fixed simplification levels. These preserve all confirmed bends
     # and remain append-stable as new live telemetry arrives.
     simplified_segments: list[list[object]] = []
+
     for active_tail in (
-        TRAIL_ACTIVE_TAIL_METERS, 4.0, 8.0, 16.0, 32.0, 64.0
+        TRAIL_ACTIVE_TAIL_METERS,
+        4.0,
+        8.0,
+        16.0,
+        32.0,
+        64.0,
     ):
         simplified_segments = _simplified_segments(
-            TRAIL_SIMPLIFY_TOLERANCE_METERS, active_tail
+            TRAIL_SIMPLIFY_TOLERANCE_METERS,
+            active_tail,
         )
-        if sum(len(segment) for segment in simplified_segments if len(segment) >= 2) <= limit:
+
+        if (
+            sum(
+                len(segment)
+                for segment in simplified_segments
+                if len(segment) >= 2
+            )
+            <= limit
+        ):
             return _tag_and_flatten(simplified_segments)
-    for tolerance in (0.2, 0.35, 0.6, 1.0, 2.0):
-        simplified_segments = _simplified_segments(tolerance, 64.0)
-        if sum(len(segment) for segment in simplified_segments if len(segment) >= 2) <= limit:
+
+    for tolerance in (
+        0.2,
+        0.35,
+        0.6,
+        1.0,
+        2.0,
+    ):
+        simplified_segments = _simplified_segments(
+            tolerance,
+            64.0,
+        )
+
+        if (
+            sum(
+                len(segment)
+                for segment in simplified_segments
+                if len(segment) >= 2
+            )
+            <= limit
+        ):
             return _tag_and_flatten(simplified_segments)
 
     # Rebuild a short live tail with the original tight commit distance. The
@@ -250,25 +382,35 @@ def _compact_trail(points: list, limit: int) -> list:
     # samples is roughly the newest 16 m of travel.
     if simplified_segments and thinned_segments:
         live_source = thinned_segments[-1][-160:]
+
         if len(live_source) >= 2:
             live_tail = _simplify_trail_segment(
                 live_source,
                 TRAIL_SIMPLIFY_TOLERANCE_METERS,
                 TRAIL_ACTIVE_TAIL_METERS,
             )
-            live_ids = {id(item[0]) for item in live_source[1:]}
+
+            live_ids = {
+                id(item[0])
+                for item in live_source[1:]
+            }
+
             historical_prefix = [
                 raw_point
                 for raw_point in simplified_segments[-1]
                 if id(raw_point) not in live_ids
             ]
+
             if (
                 historical_prefix
                 and live_tail
                 and historical_prefix[-1] == live_tail[0]
             ):
                 live_tail = live_tail[1:]
-            simplified_segments[-1] = historical_prefix + live_tail
+
+            simplified_segments[-1] = (
+                historical_prefix + live_tail
+            )
 
     # If an exceptionally long history still exceeds the recorder-safe budget,
     # allocate that budget per real segment. Keep both endpoints of every
@@ -277,13 +419,17 @@ def _compact_trail(points: list, limit: int) -> list:
     # for hundreds of new segments and rendered as isolated dots.
     candidates = [
         (segment_id, segment)
-        for segment_id, segment in enumerate(simplified_segments)
+        for segment_id, segment in enumerate(
+            simplified_segments
+        )
         if len(segment) >= 2
     ]
+
     if not candidates or limit < 2:
         return []
 
     max_segments = max(1, limit // 2)
+
     if len(candidates) > max_segments:
         # Prefer substantial mowing strokes over isolated/noisy fragments, then
         # restore chronological order for SVG rendering.
@@ -292,71 +438,120 @@ def _compact_trail(points: list, limit: int) -> list:
             key=lambda item: (len(item[1]), item[0]),
             reverse=True,
         )[:max_segments]
+
         candidates.sort(key=lambda item: item[0])
 
-    allocations = {segment_id: 2 for segment_id, _segment in candidates}
+    allocations = {
+        segment_id: 2
+        for segment_id, _segment in candidates
+    }
 
     # Reserve enough detail for the newest active segment before distributing
     # the rest across completed history. This normally keeps the entire rebuilt
     # 16 m live tail, so its committed vertices never move on later updates.
     newest_segment_id, newest_segment = candidates[-1]
+
     live_reserve = min(
         len(newest_segment),
         max(2, min(120, limit // 3)),
     )
+
     allocations[newest_segment_id] = live_reserve
 
-    remaining = max(0, limit - sum(allocations.values()))
+    remaining = max(
+        0,
+        limit - sum(allocations.values()),
+    )
+
     weights = {
-        segment_id: max(0, len(segment) - allocations[segment_id])
+        segment_id: max(
+            0,
+            len(segment) - allocations[segment_id],
+        )
         for segment_id, segment in candidates
     }
+
     total_weight = sum(weights.values())
+
     if remaining and total_weight:
         fractional: list[tuple[float, int]] = []
         used = 0
+
         for segment_id, segment in candidates:
-            exact = remaining * weights[segment_id] / total_weight
+            exact = (
+                remaining
+                * weights[segment_id]
+                / total_weight
+            )
+
             extra = min(
                 len(segment) - allocations[segment_id],
                 int(exact),
             )
+
             allocations[segment_id] += extra
             used += extra
-            fractional.append((exact - int(exact), segment_id))
+
+            fractional.append(
+                (
+                    exact - int(exact),
+                    segment_id,
+                )
+            )
+
         leftover = remaining - used
-        for _fraction, segment_id in sorted(fractional, reverse=True):
+
+        for _fraction, segment_id in sorted(
+            fractional,
+            reverse=True,
+        ):
             if leftover <= 0:
                 break
+
             segment = next(
-                item for item_id, item in candidates if item_id == segment_id
+                item
+                for item_id, item in candidates
+                if item_id == segment_id
             )
+
             if allocations[segment_id] < len(segment):
                 allocations[segment_id] += 1
                 leftover -= 1
 
     compact_segments: list[list[object]] = []
     original_ids: list[int] = []
+
     for segment_id, segment in candidates:
         compact_segments.append(
-            _evenly_sample(segment, allocations[segment_id])
+            _evenly_sample(
+                segment,
+                allocations[segment_id],
+            )
         )
         original_ids.append(segment_id)
 
     tagged: list[list[object]] = []
+
     for compact_segment, segment_id in zip(
-        compact_segments, original_ids, strict=True
+        compact_segments,
+        original_ids,
+        strict=True,
     ):
         for raw_point in compact_segment:
             normalized = _trail_point(raw_point)
+
             if normalized is None:
                 continue
-            tagged.append([
-                normalized[0],
-                normalized[1],
-                normalized[2],
-                segment_id,
-            ])
+
+            tagged.append(
+                [
+                    normalized[0],
+                    normalized[1],
+                    normalized[2],
+                    segment_id,
+                ]
+            )
+
     return tagged
 
 
@@ -367,22 +562,35 @@ async def async_setup_entry(
 ) -> None:
     data = hass.data[DOMAIN][config_entry.entry_id]
     coordinators: dict[str, NavimowCoordinator] = data["coordinators"]
+
     entities = []
+
     for coordinator in coordinators.values():
         background = NavimowTrailCamera(
             coordinator,
             include_dynamic_overlays=False,
         )
+
         live = NavimowTrailCamera(
             coordinator,
             include_dynamic_overlays=True,
             background_camera=background,
         )
-        entities.extend((live, background))
+
+        entities.extend(
+            (
+                live,
+                background,
+            )
+        )
+
     async_add_entities(entities)
 
 
-class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
+class NavimowTrailCamera(
+    CoordinatorEntity[NavimowCoordinator],
+    Camera,
+):
     """A correctly scaled, persistent mower-coordinate map."""
 
     # Map geometry, SVG paths, and the live pose change frequently and are only
@@ -400,12 +608,18 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
     ) -> None:
         Camera.__init__(self)
         CoordinatorEntity.__init__(self, coordinator)
+
         device = coordinator.device
+
         self._include_dynamic_overlays = include_dynamic_overlays
         self._background_camera = background_camera
+
         if include_dynamic_overlays:
-            self._attr_name = "Live mowing map"
-            self._attr_unique_id = f"{DOMAIN}_{device.id}_live_map"
+            self._attr_translation_key = "live_map"
+            self._attr_unique_id = (
+                f"{DOMAIN}_{device.id}_live_map"
+            )
+
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, device.id)},
                 name=device.name,
@@ -415,12 +629,17 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 serial_number=device.serial_number or device.id,
             )
         else:
-            self._attr_name = "Map background"
-            self._attr_unique_id = f"{DOMAIN}_{device.id}_map_background"
+            self._attr_translation_key = "map_background"
+            self._attr_unique_id = (
+                f"{DOMAIN}_{device.id}_map_background"
+            )
+
             # Internal rendering dependency for the bundled dashboard card.
             # Keep it active and addressable, but out of normal device views.
             self._attr_entity_registry_visible_default = False
+
         self.content_type = "image/svg+xml"
+
         # Trail compaction is CPU-heavy on large mowing histories. Keep it out
         # of extra_state_attributes because HA reads entity properties on the
         # event loop.
@@ -433,58 +652,95 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
     async def async_added_to_hass(self) -> None:
         """Hide an already-registered internal background camera."""
         await super().async_added_to_hass()
+
         if self._include_dynamic_overlays:
             self._schedule_trail_cache_refresh()
             return
+
         if not self.entity_id:
             return
+
         registry = er.async_get(self.hass)
         entry = registry.async_get(self.entity_id)
+
         if entry is None:
             return
+
         updates = {}
+
         if entry.hidden_by is None:
-            updates["hidden_by"] = er.RegistryEntryHider.INTEGRATION
+            updates["hidden_by"] = (
+                er.RegistryEntryHider.INTEGRATION
+            )
+
         if entry.device_id is not None:
             # Remove legacy 0.7.2-0.7.4 attachment from the mower device.
             # The entity remains enabled and its state is still available to
             # the bundled JS card through background_camera_entity_id.
             updates["device_id"] = None
+
         if updates:
-            registry.async_update_entity(self.entity_id, **updates)
+            registry.async_update_entity(
+                self.entity_id,
+                **updates,
+            )
 
     @staticmethod
     def _make_trail_cache_key(points: list) -> tuple:
         """Return a cheap signature that changes when the live trail changes."""
         length = len(points)
+
         if not length:
             return (0,)
-        indexes = sorted({
-            0,
-            length // 4,
-            length // 2,
-            (3 * length) // 4,
-            length - 1,
-        })
+
+        indexes = sorted(
+            {
+                0,
+                length // 4,
+                length // 2,
+                (3 * length) // 4,
+                length - 1,
+            }
+        )
+
         samples = []
+
         for index in indexes:
             point = points[index]
+
             if isinstance(point, (list, tuple)):
-                samples.append(tuple(str(value) for value in point[:4]))
+                samples.append(
+                    tuple(
+                        str(value)
+                        for value in point[:4]
+                    )
+                )
             else:
                 samples.append((repr(point),))
-        return (length, *samples)
+
+        return (
+            length,
+            *samples,
+        )
 
     def _schedule_trail_cache_refresh(self) -> None:
         """Schedule heavy camera-attribute work outside the HA event loop."""
         if not self._include_dynamic_overlays:
             return
+
         self._attribute_cache_pending = True
-        if self._trail_cache_task is not None and not self._trail_cache_task.done():
+
+        if (
+            self._trail_cache_task is not None
+            and not self._trail_cache_task.done()
+        ):
             return
-        self._trail_cache_task = self.hass.async_create_background_task(
-            self._async_refresh_trail_cache(),
-            f"{DOMAIN}_{self.coordinator.device.id}_trail_cache",
+
+        self._trail_cache_task = (
+            self.hass.async_create_background_task(
+                self._async_refresh_trail_cache(),
+                f"{DOMAIN}_{self.coordinator.device.id}_trail_cache",
+            )
         )
 
     async def _async_refresh_trail_cache(self) -> None:
@@ -492,17 +748,27 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         try:
             while self._attribute_cache_pending:
                 self._attribute_cache_pending = False
-                trail = list(self.coordinator.get_trail() or [])
+
+                trail = list(
+                    self.coordinator.get_trail() or []
+                )
+
                 key = self._make_trail_cache_key(trail)
+
                 if key != self._trail_cache_key:
-                    self._cached_compact_trail = await self.hass.async_add_executor_job(
-                        _compact_trail,
-                        trail,
-                        MAX_TRAIL_ATTRIBUTE_POINTS,
+                    self._cached_compact_trail = (
+                        await self.hass.async_add_executor_job(
+                            _compact_trail,
+                            trail,
+                            MAX_TRAIL_ATTRIBUTE_POINTS,
+                        )
                     )
                     self._trail_cache_key = key
-                self._cached_live_attributes = await self.hass.async_add_executor_job(
-                    self._build_live_attributes
+
+                self._cached_live_attributes = (
+                    await self.hass.async_add_executor_job(
+                        self._build_live_attributes
+                    )
                 )
         finally:
             self._trail_cache_task = None
@@ -511,48 +777,80 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             self.async_write_ha_state()
 
         current = self.coordinator.get_trail() or []
+
         if (
             self._attribute_cache_pending
-            or self._make_trail_cache_key(current) != self._trail_cache_key
+            or self._make_trail_cache_key(current)
+            != self._trail_cache_key
         ):
             self._schedule_trail_cache_refresh()
 
     def _handle_coordinator_update(self) -> None:
         """Coalesce updates and publish after cached attributes are ready."""
         self._schedule_trail_cache_refresh()
+
         if not self._include_dynamic_overlays:
             super()._handle_coordinator_update()
 
     async def async_will_remove_from_hass(self) -> None:
         """Cancel the trail cache task when the entity unloads."""
         task = self._trail_cache_task
+
         if task is not None and not task.done():
             task.cancel()
+
         await super().async_will_remove_from_hass()
 
     def _display_location(self, geometry: dict) -> dict:
         """Return the live pose, pinned to the charging pile while docked.
 
         Navimow may keep publishing its last approach pose after the state has
-        changed to docked/charging.  Treat the map's charging-pile geometry as
+        changed to docked/charging. Treat the map's charging-pile geometry as
         authoritative on every camera/card refresh so a later stale location
         packet cannot pull the displayed mower away from its base again.
         """
-        location = dict(self.coordinator.get_location() or {})
+        location = dict(
+            self.coordinator.get_location() or {}
+        )
+
         state = self.coordinator.get_device_state()
-        raw_state = getattr(state, "state", None) if state is not None else None
-        raw_state = getattr(raw_state, "value", raw_state)
-        state_name = str(raw_state or "").strip().lower()
+
+        raw_state = (
+            getattr(state, "state", None)
+            if state is not None
+            else None
+        )
+
+        raw_state = getattr(
+            raw_state,
+            "value",
+            raw_state,
+        )
+
+        state_name = str(
+            raw_state or ""
+        ).strip().lower()
+
         dock = geometry.get("dock")
-        if state_name in {"docked", "charging", "ischarging"} and isinstance(
-            dock, (list, tuple)
-        ) and len(dock) >= 2:
+
+        if (
+            state_name in {
+                "docked",
+                "charging",
+                "ischarging",
+            }
+            and isinstance(dock, (list, tuple))
+            and len(dock) >= 2
+        ):
             try:
                 location["postureX"] = float(dock[0])
                 location["postureY"] = float(dock[1])
-                location["position_source"] = "dock_display_snap"
+                location["position_source"] = (
+                    "dock_display_snap"
+                )
             except (TypeError, ValueError):
                 pass
+
         return location
 
     @property
@@ -561,35 +859,58 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         # The background entity only supplies an SVG image. Duplicating the live
         # geometry/trail attributes here caused two >16 KiB Recorder warnings.
         if not self._include_dynamic_overlays:
-            return {"camera_overlays_baked": False}
+            return {
+                "camera_overlays_baked": False
+            }
 
         return self._cached_live_attributes
 
     def _build_live_attributes(self) -> dict[str, object]:
         """Build compact map attributes in an executor worker."""
-
-        geometry = self.coordinator.get_map_geometry() or {}
-        raw_zones = geometry.get("zones") or []
-        zone_point_limit = max(
-            8, MAX_ZONE_ATTRIBUTE_POINTS // max(len(raw_zones), 1)
+        geometry = (
+            self.coordinator.get_map_geometry()
+            or {}
         )
+
+        raw_zones = geometry.get("zones") or []
+
+        zone_point_limit = max(
+            8,
+            MAX_ZONE_ATTRIBUTE_POINTS
+            // max(len(raw_zones), 1),
+        )
+
         zones = []
+
         for zone in raw_zones:
             points = zone.get("points") or []
+
             if len(points) < 3:
                 continue
-            zones.append({
-                "id": zone.get("id"),
-                "name": self.coordinator.get_zone_label(zone.get("id"))
-                or zone.get("name")
-                or f"Zone {zone.get('id')}",
-                "points": _compact_map_points(points, zone_point_limit),
-            })
+
+            zones.append(
+                {
+                    "id": zone.get("id"),
+                    "name": (
+                        self.coordinator.get_zone_label(
+                            zone.get("id")
+                        )
+                        or zone.get("name")
+                        or f"Zone {zone.get('id')}"
+                    ),
+                    "points": _compact_map_points(
+                        points,
+                        zone_point_limit,
+                    ),
+                }
+            )
 
         terrain = self.coordinator.get_terrain_map()
         view = None
+
         if terrain is not None:
             _image, meta = terrain
+
             view = {
                 "min_x": meta.get("min_x"),
                 "max_x": meta.get("max_x"),
@@ -599,42 +920,93 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 "width": meta.get("width"),
                 "height": meta.get("height"),
             }
+
         elif raw_zones:
             # Calculate bounds from the original geometry so compaction cannot
             # change the camera/card projection.
             all_points = [
                 point
                 for zone in raw_zones
-                for point in (zone.get("points") or [])
-                if isinstance(point, (list, tuple)) and len(point) >= 2
+                for point in (
+                    zone.get("points") or []
+                )
+                if isinstance(point, (list, tuple))
+                and len(point) >= 2
             ]
-            xs = [float(point[0]) for point in all_points]
-            ys = [float(point[1]) for point in all_points]
-            min_x, max_x = math.floor(min(xs) - 2), math.ceil(max(xs) + 2)
-            min_y, max_y = math.floor(min(ys) - 2), math.ceil(max(ys) + 2)
-            span_x = max(max_x - min_x, 1)
-            span_y = max(max_y - min_y, 1)
-            scale = VIEW / max(span_x, span_y)
+
+            xs = [
+                float(point[0])
+                for point in all_points
+            ]
+
+            ys = [
+                float(point[1])
+                for point in all_points
+            ]
+
+            min_x = math.floor(min(xs) - 2)
+            max_x = math.ceil(max(xs) + 2)
+            min_y = math.floor(min(ys) - 2)
+            max_y = math.ceil(max(ys) + 2)
+
+            span_x = max(
+                max_x - min_x,
+                1,
+            )
+            span_y = max(
+                max_y - min_y,
+                1,
+            )
+
+            scale = VIEW / max(
+                span_x,
+                span_y,
+            )
+
             view = {
-                "min_x": min_x, "max_x": max_x,
-                "min_y": min_y, "max_y": max_y,
+                "min_x": min_x,
+                "max_x": max_x,
+                "min_y": min_y,
+                "max_y": max_y,
                 "scale": scale,
-                "width": max(240, round(span_x * scale)),
-                "height": max(240, round(span_y * scale)),
+                "width": max(
+                    240,
+                    round(span_x * scale),
+                ),
+                "height": max(
+                    240,
+                    round(span_y * scale),
+                ),
             }
 
-        location = self._display_location(geometry)
-        delay_context = self.coordinator.get_delay_context()
-        official_groups = self.coordinator.get_official_trail_groups()
-        zone_progress = self.coordinator.get_zone_progress_map()
-        resumable_zone_ids = self.coordinator.get_resumable_zone_ids()
-        # Dynamic map primitives for the Lovelace card.  Keeping the trail
+        location = self._display_location(
+            geometry
+        )
+
+        delay_context = (
+            self.coordinator.get_delay_context()
+        )
+
+        official_groups = (
+            self.coordinator.get_official_trail_groups()
+        )
+
+        zone_progress = (
+            self.coordinator.get_zone_progress_map()
+        )
+
+        resumable_zone_ids = (
+            self.coordinator.get_resumable_zone_ids()
+        )
+
+        # Dynamic map primitives for the Lovelace card. Keeping the trail
         # and mower pose in entity attributes avoids relying on repeated camera
         # image reloads, which Chrome/Edge can aggressively cache and which also
         # makes the mower appear to jump every few seconds.
         live_trail = self.coordinator.get_trail()
         live_trail_path = ""
         mower_pose = None
+
         if view:
             try:
                 min_x_v = float(view["min_x"])
@@ -642,62 +1014,141 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
                 scale_v = float(view["scale"])
 
                 def _px_v(x):
-                    return (float(x) - min_x_v) * scale_v
+                    return (
+                        float(x) - min_x_v
+                    ) * scale_v
 
                 def _py_v(y):
-                    return (max_y_v - float(y)) * scale_v
+                    return (
+                        max_y_v - float(y)
+                    ) * scale_v
 
                 commands = []
                 previous = None
                 previous_zone = None
                 previous_segment = None
+
                 # Compaction is prepared asynchronously in an executor.
                 for point in self._cached_compact_trail:
-                    if not isinstance(point, (list, tuple)) or len(point) < 2:
+                    if (
+                        not isinstance(
+                            point,
+                            (list, tuple),
+                        )
+                        or len(point) < 2
+                    ):
                         continue
+
                     try:
-                        x0, y0 = float(point[0]), float(point[1])
+                        x0 = float(point[0])
+                        y0 = float(point[1])
                     except (TypeError, ValueError):
                         continue
-                    zone_id = self.coordinator._integer(point[2]) if len(point) >= 3 else None
-                    segment_id = self.coordinator._integer(point[3]) if len(point) >= 4 else None
+
+                    zone_id = (
+                        self.coordinator._integer(
+                            point[2]
+                        )
+                        if len(point) >= 3
+                        else None
+                    )
+
+                    segment_id = (
+                        self.coordinator._integer(
+                            point[3]
+                        )
+                        if len(point) >= 4
+                        else None
+                    )
+
                     if segment_id is not None:
-                        new_segment = not commands or segment_id != previous_segment
+                        new_segment = (
+                            not commands
+                            or segment_id
+                            != previous_segment
+                        )
                     else:
                         gap = False
+
                         if previous is not None:
-                            gap = math.hypot(x0 - previous[0], y0 - previous[1]) > 2.5
-                        new_segment = not commands or gap or (
-                            zone_id is not None
-                            and previous_zone is not None
-                            and zone_id != previous_zone
+                            gap = (
+                                math.hypot(
+                                    x0 - previous[0],
+                                    y0 - previous[1],
+                                )
+                                > 2.5
+                            )
+
+                        new_segment = (
+                            not commands
+                            or gap
+                            or (
+                                zone_id is not None
+                                and previous_zone is not None
+                                and zone_id
+                                != previous_zone
+                            )
                         )
+
                     commands.append(
-                        f'{"M" if new_segment else "L"} {_px_v(x0):.1f} {_py_v(y0):.1f}'
+                        f'{"M" if new_segment else "L"} '
+                        f'{_px_v(x0):.1f} '
+                        f'{_py_v(y0):.1f}'
                     )
+
                     previous = (x0, y0)
                     previous_zone = zone_id
                     previous_segment = segment_id
-                live_trail_path = " ".join(commands)
+
+                live_trail_path = " ".join(
+                    commands
+                )
 
                 lx = location.get("postureX")
                 ly = location.get("postureY")
+
                 if lx is not None and ly is not None:
-                    theta = location.get("postureTheta")
+                    theta = location.get(
+                        "postureTheta"
+                    )
+
                     try:
-                        heading = (-math.degrees(float(theta))) % 360.0
-                    except (TypeError, ValueError):
+                        heading = (
+                            -math.degrees(
+                                float(theta)
+                            )
+                        ) % 360.0
+                    except (
+                        TypeError,
+                        ValueError,
+                    ):
                         heading = 0.0
+
                     mower_pose = {
-                        "x": round(float(lx), 4),
-                        "y": round(float(ly), 4),
-                        "heading": round(heading, 2),
+                        "x": round(
+                            float(lx),
+                            4,
+                        ),
+                        "y": round(
+                            float(ly),
+                            4,
+                        ),
+                        "heading": round(
+                            heading,
+                            2,
+                        ),
                     }
-            except (TypeError, ValueError, KeyError):
+
+            except (
+                TypeError,
+                ValueError,
+                KeyError,
+            ):
                 live_trail_path = ""
                 mower_pose = None
 
         device = self.coordinator.device
+
         return {
             "mower_name": device.name,
             "mower_model": device.model or "Unknown",
@@ -708,47 +1159,105 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             "mower_pose": mower_pose,
             # Signals the bundled dashboard card that these layers are already
             # present in the camera frame, preventing duplicate mower/trail SVGs.
-            "camera_overlays_baked": self._include_dynamic_overlays,
+            "camera_overlays_baked": (
+                self._include_dynamic_overlays
+            ),
             "background_camera_entity_id": (
                 self._background_camera.entity_id
                 if self._background_camera is not None
                 else None
             ),
-            # Raw Navimow type-4 location message.  The official app uses
+            # Raw Navimow type-4 location message. The official app uses
             # this to indicate that an active/one-time mowing task is being
-            # delayed (for example by rain).  Exposing it lets the Lovelace
+            # delayed (for example by rain). Exposing it lets the Lovelace
             # card react immediately without waiting for another entity.
-            "task_delay": location.get("taskDelay"),
+            "task_delay": location.get(
+                "taskDelay"
+            ),
             # Latched copy survives the very short type-4 message and the
             # mower's transition back to charging, so the UI can explain why.
-            "last_task_delay": delay_context.get("last_task_delay"),
-            "last_task_delay_age_s": delay_context.get("last_task_delay_age_s"),
-            "last_task_delay_epoch_ms": delay_context.get("last_task_delay_epoch_ms"),
-            "interruption_notice": delay_context.get("interruption_notice"),
-            "official_trail_groups": len(official_groups),
-            "official_trail_points": sum(len(group.get("points") or []) for group in official_groups),
-            "official_trail_partitions": sorted({group.get("partition_id") for group in official_groups if group.get("partition_id") is not None}),
-            "zone_progress": {str(zone_id): round(progress, 1) for zone_id, progress in zone_progress.items()},
+            "last_task_delay": delay_context.get(
+                "last_task_delay"
+            ),
+            "last_task_delay_age_s": delay_context.get(
+                "last_task_delay_age_s"
+            ),
+            "last_task_delay_epoch_ms": delay_context.get(
+                "last_task_delay_epoch_ms"
+            ),
+            "interruption_notice": delay_context.get(
+                "interruption_notice"
+            ),
+            "official_trail_groups": len(
+                official_groups
+            ),
+            "official_trail_points": sum(
+                len(group.get("points") or [])
+                for group in official_groups
+            ),
+            "official_trail_partitions": sorted(
+                {
+                    group.get("partition_id")
+                    for group in official_groups
+                    if group.get("partition_id")
+                    is not None
+                }
+            ),
+            "zone_progress": {
+                str(zone_id): round(
+                    progress,
+                    1,
+                )
+                for zone_id, progress
+                in zone_progress.items()
+            },
             "resumable_zone_ids": resumable_zone_ids,
         }
 
     def camera_image(
-        self, width: int | None = None, height: int | None = None
+        self,
+        width: int | None = None,
+        height: int | None = None,
     ) -> bytes:
         return self._render().encode("utf-8")
 
     def _render(self) -> str:
         trail = self.coordinator.get_trail()
-        official_trail_groups = self.coordinator.get_official_trail_groups()
-        geometry = self.coordinator.get_map_geometry() or {}
-        location = self._display_location(geometry)
-        terrain = self.coordinator.get_terrain_map()
+        official_trail_groups = (
+            self.coordinator.get_official_trail_groups()
+        )
+
+        geometry = (
+            self.coordinator.get_map_geometry()
+            or {}
+        )
+
+        location = self._display_location(
+            geometry
+        )
+
+        terrain = (
+            self.coordinator.get_terrain_map()
+        )
+
         zones = geometry.get("zones") or []
         paths = geometry.get("paths") or []
         dock = geometry.get("dock")
-        all_points = [p for zone in zones for p in zone["points"]]
-        all_points.extend(p for route in paths for p in route["points"])
+
+        all_points = [
+            p
+            for zone in zones
+            for p in zone["points"]
+        ]
+
+        all_points.extend(
+            p
+            for route in paths
+            for p in route["points"]
+        )
+
         all_points.extend(trail)
+
         # Official trail API data is retained for diagnostics/protocol
         # research only. Navimow includes transport/approach movement in that
         # dataset, including movement inside the selected lawn. The official
@@ -756,72 +1265,181 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         # must not affect live-map bounds or rendering.
         if isinstance(dock, list):
             all_points.append(dock)
+
         if not all_points and terrain is None:
-            return self._placeholder("Waiting for the mower to send live location data")
+            return self._placeholder(
+                "Waiting for the mower to send live location data"
+            )
 
         terrain_svg = ""
+
         if terrain is not None:
             image, meta = terrain
-            min_x, max_x = meta["min_x"], meta["max_x"]
-            min_y, max_y = meta["min_y"], meta["max_y"]
+
+            min_x = meta["min_x"]
+            max_x = meta["max_x"]
+            min_y = meta["min_y"]
+            max_y = meta["max_y"]
             scale = meta["pixels_per_meter"]
-            width, height = meta["width"], meta["height"]
-            encoded = base64.b64encode(image).decode("ascii")
+            width = meta["width"]
+            height = meta["height"]
+
+            encoded = base64.b64encode(
+                image
+            ).decode("ascii")
+
             terrain_svg = (
-                f'<image href="data:image/webp;base64,{encoded}" x="0" y="0" '
-                f'width="{width}" height="{height}" preserveAspectRatio="none"/>'
+                f'<image href="data:image/webp;base64,{encoded}" '
+                f'x="0" y="0" width="{width}" '
+                f'height="{height}" '
+                f'preserveAspectRatio="none"/>'
             )
         else:
-            xs = [p[0] for p in all_points]
-            ys = [p[1] for p in all_points]
-            min_x, max_x = math.floor(min(xs) - 2), math.ceil(max(xs) + 2)
-            min_y, max_y = math.floor(min(ys) - 2), math.ceil(max(ys) + 2)
-            span_x = max(max_x - min_x, 1)
-            span_y = max(max_y - min_y, 1)
-            scale = VIEW / max(span_x, span_y)
-            width = max(240, round(span_x * scale))
-            height = max(240, round(span_y * scale))
+            xs = [
+                p[0]
+                for p in all_points
+            ]
+
+            ys = [
+                p[1]
+                for p in all_points
+            ]
+
+            min_x = math.floor(
+                min(xs) - 2
+            )
+            max_x = math.ceil(
+                max(xs) + 2
+            )
+            min_y = math.floor(
+                min(ys) - 2
+            )
+            max_y = math.ceil(
+                max(ys) + 2
+            )
+
+            span_x = max(
+                max_x - min_x,
+                1,
+            )
+
+            span_y = max(
+                max_y - min_y,
+                1,
+            )
+
+            scale = VIEW / max(
+                span_x,
+                span_y,
+            )
+
+            width = max(
+                240,
+                round(span_x * scale),
+            )
+
+            height = max(
+                240,
+                round(span_y * scale),
+            )
 
         def px(x: float) -> float:
-            return (x - min_x) * scale
+            return (
+                x - min_x
+            ) * scale
 
         def py(y: float) -> float:
-            return (max_y - y) * scale
+            return (
+                max_y - y
+            ) * scale
 
-        def _point_in_polygon(x: float, y: float, points: list) -> bool:
+        def _point_in_polygon(
+            x: float,
+            y: float,
+            points: list,
+        ) -> bool:
             clean = []
+
             for point in points or []:
-                if not isinstance(point, (list, tuple)) or len(point) < 2:
+                if (
+                    not isinstance(
+                        point,
+                        (list, tuple),
+                    )
+                    or len(point) < 2
+                ):
                     continue
+
                 try:
-                    clean.append((float(point[0]), float(point[1])))
-                except (TypeError, ValueError):
+                    clean.append(
+                        (
+                            float(point[0]),
+                            float(point[1]),
+                        )
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
                     continue
+
             if len(clean) < 3:
                 return False
+
             inside = False
             j = len(clean) - 1
+
             for i, (xi, yi) in enumerate(clean):
                 xj, yj = clean[j]
+
                 if (yi > y) != (yj > y):
-                    edge_x = (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi
+                    edge_x = (
+                        (xj - xi)
+                        * (y - yi)
+                        / ((yj - yi) or 1e-12)
+                        + xi
+                    )
+
                     if x < edge_x:
                         inside = not inside
+
                 j = i
+
             return inside
 
         def _zone_for_point(point):
-            if isinstance(point, (list, tuple)) and len(point) >= 3:
-                embedded = self.coordinator._integer(point[2])
+            if (
+                isinstance(
+                    point,
+                    (list, tuple),
+                )
+                and len(point) >= 3
+            ):
+                embedded = self.coordinator._integer(
+                    point[2]
+                )
+
                 if embedded is not None:
                     return embedded
+
             try:
-                x, y = float(point[0]), float(point[1])
-            except (TypeError, ValueError, IndexError):
+                x = float(point[0])
+                y = float(point[1])
+            except (
+                TypeError,
+                ValueError,
+                IndexError,
+            ):
                 return None
+
             for mapped_zone in zones:
-                if _point_in_polygon(x, y, mapped_zone.get("points") or []):
+                if _point_in_polygon(
+                    x,
+                    y,
+                    mapped_zone.get("points") or [],
+                ):
                     return mapped_zone.get("id")
+
             return None
 
         # Build separate path segments per lawn zone. This prevents the final
@@ -831,82 +1449,225 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         trail_commands = []
         previous_zone = object()
         previous_point = None
+
         for point in trail:
             zone_id = _zone_for_point(point)
             gap = False
+
             if previous_point is not None:
                 try:
-                    gap = math.hypot(
-                        float(point[0]) - float(previous_point[0]),
-                        float(point[1]) - float(previous_point[1]),
-                    ) > 2.5
-                except (TypeError, ValueError, IndexError):
+                    gap = (
+                        math.hypot(
+                            float(point[0])
+                            - float(previous_point[0]),
+                            float(point[1])
+                            - float(previous_point[1]),
+                        )
+                        > 2.5
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                    IndexError,
+                ):
                     gap = True
-            command = "M" if (not trail_commands or zone_id != previous_zone or gap) else "L"
-            trail_commands.append(f"{command} {px(point[0]):.1f} {py(point[1]):.1f}")
+
+            command = (
+                "M"
+                if (
+                    not trail_commands
+                    or zone_id != previous_zone
+                    or gap
+                )
+                else "L"
+            )
+
+            trail_commands.append(
+                f"{command} "
+                f"{px(point[0]):.1f} "
+                f"{py(point[1]):.1f}"
+            )
+
             previous_zone = zone_id
             previous_point = point
-        trail_path = " ".join(trail_commands)
+
+        trail_path = " ".join(
+            trail_commands
+        )
 
         # The mower icon must ALWAYS follow the latest live pose, even when we
         # intentionally suppress trail drawing while it travels to/from a zone.
         mower = None
         x = location.get("postureX")
         y = location.get("postureY")
+
         try:
-            mower = [float(x), float(y)]
-        except (TypeError, ValueError):
-            mower = trail[-1] if trail else None
-        progress = location.get("mowingPercentage")
-        progress_text = f"{progress}%" if progress is not None else "Live"
-        theta = location.get("postureTheta")
+            mower = [
+                float(x),
+                float(y),
+            ]
+        except (
+            TypeError,
+            ValueError,
+        ):
+            mower = (
+                trail[-1]
+                if trail
+                else None
+            )
+
+        progress = location.get(
+            "mowingPercentage"
+        )
+
+        progress_text = (
+            f"{progress}%"
+            if progress is not None
+            else "Live"
+        )
+
+        theta = location.get(
+            "postureTheta"
+        )
+
         try:
-            heading = math.degrees(float(theta)) % 360
-        except (TypeError, ValueError):
+            heading = (
+                math.degrees(
+                    float(theta)
+                )
+                % 360
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
             heading = 0.0
+
         # Navimow reports postureTheta in mathematical map coordinates
         # (zero=east, positive=counter-clockwise). SVG uses a downward Y axis,
         # so the equivalent display rotation is the negative angle. While the
         # mower is moving, its latest position vector is even more dependable
         # than a potentially delayed heading packet.
         marker_rotation = -heading
+
         if len(trail) >= 2:
             current = trail[-1]
-            for previous in reversed(trail[:-1]):
-                dx = current[0] - previous[0]
-                dy = current[1] - previous[1]
+
+            for previous in reversed(
+                trail[:-1]
+            ):
+                dx = (
+                    current[0]
+                    - previous[0]
+                )
+                dy = (
+                    current[1]
+                    - previous[1]
+                )
+
                 if math.hypot(dx, dy) >= 0.03:
-                    marker_rotation = math.degrees(math.atan2(-dy, dx))
+                    marker_rotation = math.degrees(
+                        math.atan2(
+                            -dy,
+                            dx,
+                        )
+                    )
                     break
-        zone = location.get("currentMowBoundary")
+
+        zone = location.get(
+            "currentMowBoundary"
+        )
+
         if zone is None:
-            zone = location.get("targetZone")
-        zone_text = f" · Zone {zone}" if zone is not None else ""
+            zone = location.get(
+                "targetZone"
+            )
+
+        zone_text = (
+            f" · Zone {zone}"
+            if zone is not None
+            else ""
+        )
+
         def polygon_centroid(points):
             """Return the area-weighted polygon centroid, with a safe average fallback."""
-            pts = [(float(p[0]), float(p[1])) for p in points if len(p) >= 2]
+            pts = [
+                (
+                    float(p[0]),
+                    float(p[1]),
+                )
+                for p in points
+                if len(p) >= 2
+            ]
+
             if not pts:
-                return (0.0, 0.0)
+                return (
+                    0.0,
+                    0.0,
+                )
+
             if len(pts) < 3:
                 return (
-                    sum(p[0] for p in pts) / len(pts),
-                    sum(p[1] for p in pts) / len(pts),
+                    sum(
+                        p[0]
+                        for p in pts
+                    )
+                    / len(pts),
+                    sum(
+                        p[1]
+                        for p in pts
+                    )
+                    / len(pts),
                 )
+
             twice_area = 0.0
             cx_sum = 0.0
             cy_sum = 0.0
+
             for idx, current in enumerate(pts):
-                nxt = pts[(idx + 1) % len(pts)]
-                cross = current[0] * nxt[1] - nxt[0] * current[1]
+                nxt = pts[
+                    (idx + 1) % len(pts)
+                ]
+
+                cross = (
+                    current[0]
+                    * nxt[1]
+                    - nxt[0]
+                    * current[1]
+                )
+
                 twice_area += cross
-                cx_sum += (current[0] + nxt[0]) * cross
-                cy_sum += (current[1] + nxt[1]) * cross
+
+                cx_sum += (
+                    current[0]
+                    + nxt[0]
+                ) * cross
+
+                cy_sum += (
+                    current[1]
+                    + nxt[1]
+                ) * cross
+
             if abs(twice_area) < 1e-9:
                 return (
-                    sum(p[0] for p in pts) / len(pts),
-                    sum(p[1] for p in pts) / len(pts),
+                    sum(
+                        p[0]
+                        for p in pts
+                    )
+                    / len(pts),
+                    sum(
+                        p[1]
+                        for p in pts
+                    )
+                    / len(pts),
                 )
-            return (cx_sum / (3.0 * twice_area), cy_sum / (3.0 * twice_area))
+
+            return (
+                cx_sum
+                / (3.0 * twice_area),
+                cy_sum
+                / (3.0 * twice_area),
+            )
 
         # Zone labels are intentionally NOT rendered into the camera image.
         # The dashboard SVG overlay owns all zone-name/ID labels. Rendering a
@@ -914,21 +1675,32 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         # the new pill label. Keeping the camera layer label-free also means
         # renames are reflected in exactly one place.
         zone_svg: list[str] = []
+
         route_svg = "".join(
-            f'<polyline points="{" ".join(f"{px(p[0]):.1f},{py(p[1]):.1f}" for p in route["points"])}" fill="none" stroke="#91a9b7" stroke-width="5" stroke-linecap="round" stroke-dasharray="8 5"/>'
+            f'<polyline points="{" ".join(f"{px(p[0]):.1f},{py(p[1]):.1f}" for p in route["points"])}" '
+            f'fill="none" stroke="#91a9b7" stroke-width="5" '
+            f'stroke-linecap="round" stroke-dasharray="8 5"/>'
             for route in paths
         )
+
         dock_svg = ""
+
         if isinstance(dock, list):
             dock_svg = (
-                f'<g transform="translate({px(dock[0]):.1f} {py(dock[1]):.1f})">'
-                '<circle r="19" fill="#252c37" stroke="#ffffff" stroke-width="2" '
+                f'<g transform="translate('
+                f'{px(dock[0]):.1f} '
+                f'{py(dock[1]):.1f})">'
+                '<circle r="19" fill="#252c37" '
+                'stroke="#ffffff" stroke-width="2" '
                 'stroke-opacity=".2"/>'
-                '<path d="M 2 -13 L -10 2 L -2 2 L -6 13 L 11 -5 L 2 -5 Z" '
-                'fill="#ffffff" stroke="#ffffff" stroke-width="1.5" '
+                '<path d="M 2 -13 L -10 2 L -2 2 L -6 13 '
+                'L 11 -5 L 2 -5 Z" '
+                'fill="#ffffff" stroke="#ffffff" '
+                'stroke-width="1.5" '
                 'stroke-linejoin="round"/>'
                 '</g>'
             )
+
         # The official path endpoint is the authoritative coverage fallback
         # when cloud pose telemetry is cached or sparse (notably while the
         # mobile app has a direct Bluetooth connection). Constrain every group
@@ -940,84 +1712,204 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
             if zone.get("id") is not None
         }
 
-        def _looks_like_transfer(points: list) -> bool:
+        def _looks_like_transfer(
+            points: list,
+        ) -> bool:
             clean = []
+
             for point in points or []:
                 try:
-                    clean.append((float(point[0]), float(point[1])))
-                except (TypeError, ValueError, IndexError):
+                    clean.append(
+                        (
+                            float(point[0]),
+                            float(point[1]),
+                        )
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                    IndexError,
+                ):
                     continue
+
             if len(clean) < 2:
                 return True
+
             length = sum(
-                math.hypot(b[0] - a[0], b[1] - a[1])
-                for a, b in zip(clean, clean[1:])
+                math.hypot(
+                    b[0] - a[0],
+                    b[1] - a[1],
+                )
+                for a, b in zip(
+                    clean,
+                    clean[1:],
+                )
             )
+
             if length <= 0.25:
                 return True
-            chord = math.hypot(clean[-1][0] - clean[0][0], clean[-1][1] - clean[0][1])
-            straightness = chord / length if length else 1.0
+
+            chord = math.hypot(
+                clean[-1][0]
+                - clean[0][0],
+                clean[-1][1]
+                - clean[0][1],
+            )
+
+            straightness = (
+                chord / length
+                if length
+                else 1.0
+            )
+
             # Navimow transfer/approach groups are typically a relatively long,
-            # almost straight polyline.  Real coverage groups contain turns,
-            # perimeter curvature, or repeated passes.  Keep the threshold
+            # almost straight polyline. Real coverage groups contain turns,
+            # perimeter curvature, or repeated passes. Keep the threshold
             # deliberately conservative so a short genuine mowing pass survives.
-            return (length >= 4.0 and straightness >= 0.94) or (length >= 2.0 and len(clean) <= 5 and straightness >= 0.90)
+            return (
+                length >= 4.0
+                and straightness >= 0.94
+            ) or (
+                length >= 2.0
+                and len(clean) <= 5
+                and straightness >= 0.90
+            )
 
         official_svg_parts: list[str] = []
+
         for group in official_trail_groups:
             points = group.get("points") or []
+
             if len(points) < 2:
                 continue
+
             try:
-                partition_id = int(group.get("partition_id")) if group.get("partition_id") is not None else None
-            except (TypeError, ValueError):
+                partition_id = (
+                    int(group.get("partition_id"))
+                    if group.get("partition_id")
+                    is not None
+                    else None
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
                 partition_id = None
-            zone_geometry = zone_by_id.get(partition_id) if partition_id is not None else None
-            polygon = zone_geometry.get("points") if zone_geometry else None
+
+            zone_geometry = (
+                zone_by_id.get(partition_id)
+                if partition_id is not None
+                else None
+            )
+
+            polygon = (
+                zone_geometry.get("points")
+                if zone_geometry
+                else None
+            )
 
             # Split the official path whenever it leaves its own mowing zone.
             # This alone removes historical paths crossing unrelated lawns.
             segments: list[list] = []
             current_segment: list = []
+
             for point in points:
                 try:
-                    x0, y0 = float(point[0]), float(point[1])
-                except (TypeError, ValueError, IndexError):
+                    x0 = float(point[0])
+                    y0 = float(point[1])
+                except (
+                    TypeError,
+                    ValueError,
+                    IndexError,
+                ):
                     if len(current_segment) >= 2:
-                        segments.append(current_segment)
+                        segments.append(
+                            current_segment
+                        )
+
                     current_segment = []
                     continue
+
                 in_partition = True
+
                 if polygon:
-                    in_partition = self.coordinator._point_in_or_near_polygon(
-                        x0, y0, polygon, margin=0.8
+                    in_partition = (
+                        self.coordinator
+                        ._point_in_or_near_polygon(
+                            x0,
+                            y0,
+                            polygon,
+                            margin=0.8,
+                        )
                     )
+
                 if in_partition:
-                    current_segment.append([x0, y0])
+                    current_segment.append(
+                        [
+                            x0,
+                            y0,
+                        ]
+                    )
                 else:
                     if len(current_segment) >= 2:
-                        segments.append(current_segment)
+                        segments.append(
+                            current_segment
+                        )
+
                     current_segment = []
+
             if len(current_segment) >= 2:
-                segments.append(current_segment)
+                segments.append(
+                    current_segment
+                )
 
             for segment in segments:
                 # Straight passes are legitimate mowing strokes, so do not
                 # discard them as transfers after partition clipping.
                 commands = []
                 previous = None
+
                 for point in segment:
                     gap = False
+
                     if previous is not None:
-                        gap = math.hypot(float(point[0]) - float(previous[0]), float(point[1]) - float(previous[1])) > 2.5
-                    command = "M" if (not commands or gap) else "L"
-                    commands.append(f"{command} {px(point[0]):.1f} {py(point[1]):.1f}")
+                        gap = (
+                            math.hypot(
+                                float(point[0])
+                                - float(previous[0]),
+                                float(point[1])
+                                - float(previous[1]),
+                            )
+                            > 2.5
+                        )
+
+                    command = (
+                        "M"
+                        if (
+                            not commands
+                            or gap
+                        )
+                        else "L"
+                    )
+
+                    commands.append(
+                        f"{command} "
+                        f"{px(point[0]):.1f} "
+                        f"{py(point[1]):.1f}"
+                    )
+
                     previous = point
+
                 if commands:
                     official_svg_parts.append(
-                        f'<path d="{" ".join(commands)}" fill="none" stroke="#ffffff" stroke-width="8" '
-                        'stroke-linecap="round" stroke-linejoin="round" opacity=".38"/>'
+                        f'<path d="{" ".join(commands)}" '
+                        'fill="none" stroke="#ffffff" '
+                        'stroke-width="8" '
+                        'stroke-linecap="round" '
+                        'stroke-linejoin="round" '
+                        'opacity=".38"/>'
                     )
+
         # Render the server path underneath the smoother MQTT/live layer. This
         # keeps coverage accurate even when the private pose endpoint repeats a
         # stale coordinate for several refreshes.
@@ -1025,92 +1917,177 @@ class NavimowTrailCamera(CoordinatorEntity[NavimowCoordinator], Camera):
         # points. Keep it available in diagnostics, but never paint it as
         # blade-on coverage.
         official_trail_svg = ""
+
         # Keep the standalone camera entity complete as well as exposing the
-        # smoother attribute-based overlays used by the dashboard card. Camera
-        # consumers that do not use the custom card still need the live
+        # smoother attribute-based overlays used by the dashboard card.
+        # Camera consumers that do not use the custom card still need the live
         # blade-on trail and current mower pose baked into each SVG frame.
         trail_svg = (
-            f'<path d="{trail_path}" fill="none" stroke="#ffffff" stroke-width="8" '
-            'stroke-linecap="round" stroke-linejoin="round" opacity=".72"/>'
-            if self._include_dynamic_overlays and trail_path
+            f'<path d="{trail_path}" fill="none" '
+            'stroke="#ffffff" stroke-width="8" '
+            'stroke-linecap="round" '
+            'stroke-linejoin="round" '
+            'opacity=".72"/>'
+            if (
+                self._include_dynamic_overlays
+                and trail_path
+            )
             else ""
         )
+
         marker_svg = ""
-        if self._include_dynamic_overlays and mower is not None:
-            marker_x = px(float(mower[0]))
-            marker_y = py(float(mower[1]))
-            marker_family = _mower_marker_family(self.coordinator.device.model)
+
+        if (
+            self._include_dynamic_overlays
+            and mower is not None
+        ):
+            marker_x = px(
+                float(mower[0])
+            )
+            marker_y = py(
+                float(mower[1])
+            )
+
+            marker_family = _mower_marker_family(
+                self.coordinator.device.model
+            )
+
             if marker_family == "x4":
                 marker_art = (
                     '<g transform="rotate(-90)">'
-                    '<ellipse cx="1" cy="3" rx="30" ry="20" fill="#000" opacity=".28"/>'
-                    '<rect x="-23" y="-19" width="12" height="9" rx="2.5" fill="#0c1116" stroke="#4a545d" stroke-width=".8"/>'
-                    '<rect x="-23" y="10" width="12" height="9" rx="2.5" fill="#0c1116" stroke="#4a545d" stroke-width=".8"/>'
-                    '<rect x="13" y="-18" width="10" height="8" rx="2.5" fill="#0c1116" stroke="#4a545d" stroke-width=".8"/>'
-                    '<rect x="13" y="10" width="10" height="8" rx="2.5" fill="#0c1116" stroke="#4a545d" stroke-width=".8"/>'
-                    '<path d="M -19 -11 Q -15 -15 -10 -15 H 6 L 14 -12 L 19 -7 V 7 L 14 12 L 6 15 H -10 Q -15 15 -19 11 L -22 6 V -6 Z" '
-                    'fill="#2b3138" stroke="#88939c" stroke-width="1.15"/>'
-                    '<path d="M -11 -12 H 5 L 15 -9 L 11 -4 H -14 Z" fill="#4d5660" stroke="#20272e" stroke-width=".9"/>'
-                    '<path d="M -11 12 H 5 L 15 9 L 11 4 H -14 Z" fill="#4d5660" stroke="#20272e" stroke-width=".9"/>'
-                    '<path d="M -16 -7 H 18 L 26 -4 V 4 L 18 7 H -16 Q -19 4 -19 0 Q -19 -4 -16 -7 Z" fill="#111820"/>'
-                    '<path d="M 10 -7 L 17 -14 L 27 -17 L 30 -13 L 25 -7 L 18 -4 L 15 -2 Z" fill="#59626b" stroke="#7d8790" stroke-width=".65" stroke-linejoin="round"/>'
-                    '<path d="M 10 7 L 17 14 L 27 17 L 30 13 L 25 7 L 18 4 L 15 2 Z" fill="#59626b" stroke="#7d8790" stroke-width=".65" stroke-linejoin="round"/>'
-                    '<path d="M 17 -6 L 27 -9 L 32 -5 L 34 -2 V 2 L 32 5 L 27 9 L 17 6 Z" fill="#6d767f" stroke="#8b959e" stroke-width=".7" stroke-linejoin="round"/>'
-                    '<path d="M 29 -18 Q 33 -10 33 0 Q 33 10 29 18" fill="none" stroke="#4a535b" stroke-width="4.2" stroke-linecap="round"/>'
-                    '<path d="M 29 -18 Q 33 -10 33 0 Q 33 10 29 18" fill="none" stroke="#080c10" stroke-width="2.8" stroke-linecap="round"/>'
-                    '<rect x="-7" y="-4" width="6" height="8" rx="1.7" fill="#ff5538"/>'
-                    '<rect x="1" y="-4.5" width="6" height="9" rx="1.5" fill="#111820"/>'
-                    '<path d="M 9 -5.5 V 5.5" stroke="#65a8ff" stroke-width="2.4" stroke-linecap="round"/>'
-                    '<path d="M 12 -5 V 5 M 14 -5 V 5 M 16 -4 V 4" stroke="#717b84" stroke-width="1" stroke-linecap="round"/>'
+                    '<ellipse cx="1" cy="3" rx="30" ry="20" '
+                    'fill="#000" opacity=".28"/>'
+                    '<rect x="-23" y="-19" width="12" height="9" '
+                    'rx="2.5" fill="#0c1116" '
+                    'stroke="#4a545d" stroke-width=".8"/>'
+                    '<rect x="-23" y="10" width="12" height="9" '
+                    'rx="2.5" fill="#0c1116" '
+                    'stroke="#4a545d" stroke-width=".8"/>'
+                    '<rect x="13" y="-18" width="10" height="8" '
+                    'rx="2.5" fill="#0c1116" '
+                    'stroke="#4a545d" stroke-width=".8"/>'
+                    '<rect x="13" y="10" width="10" height="8" '
+                    'rx="2.5" fill="#0c1116" '
+                    'stroke="#4a545d" stroke-width=".8"/>'
+                    '<path d="M -19 -11 Q -15 -15 -10 -15 H 6 '
+                    'L 14 -12 L 19 -7 V 7 L 14 12 L 6 15 '
+                    'H -10 Q -15 15 -19 11 L -22 6 V -6 Z" '
+                    'fill="#2b3138" stroke="#88939c" '
+                    'stroke-width="1.15"/>'
+                    '<path d="M -11 -12 H 5 L 15 -9 L 11 -4 '
+                    'H -14 Z" fill="#4d5660" '
+                    'stroke="#20272e" stroke-width=".9"/>'
+                    '<path d="M -11 12 H 5 L 15 9 L 11 4 '
+                    'H -14 Z" fill="#4d5660" '
+                    'stroke="#20272e" stroke-width=".9"/>'
+                    '<path d="M -16 -7 H 18 L 26 -4 V 4 '
+                    'L 18 7 H -16 Q -19 4 -19 0 '
+                    'Q -19 -4 -16 -7 Z" '
+                    'fill="#111820"/>'
+                    '<path d="M 10 -7 L 17 -14 L 27 -17 '
+                    'L 30 -13 L 25 -7 L 18 -4 L 15 -2 Z" '
+                    'fill="#59626b" stroke="#7d8790" '
+                    'stroke-width=".65" stroke-linejoin="round"/>'
+                    '<path d="M 10 7 L 17 14 L 27 17 L 30 13 '
+                    'L 25 7 L 18 4 L 15 2 Z" '
+                    'fill="#59626b" stroke="#7d8790" '
+                    'stroke-width=".65" stroke-linejoin="round"/>'
+                    '<path d="M 17 -6 L 27 -9 L 32 -5 L 34 -2 '
+                    'V 2 L 32 5 L 27 9 L 17 6 Z" '
+                    'fill="#6d767f" stroke="#8b959e" '
+                    'stroke-width=".7" stroke-linejoin="round"/>'
+                    '<path d="M 29 -18 Q 33 -10 33 0 '
+                    'Q 33 10 29 18" fill="none" '
+                    'stroke="#4a535b" stroke-width="4.2" '
+                    'stroke-linecap="round"/>'
+                    '<path d="M 29 -18 Q 33 -10 33 0 '
+                    'Q 33 10 29 18" fill="none" '
+                    'stroke="#080c10" stroke-width="2.8" '
+                    'stroke-linecap="round"/>'
+                    '<rect x="-7" y="-4" width="6" height="8" '
+                    'rx="1.7" fill="#ff5538"/>'
+                    '<rect x="1" y="-4.5" width="6" height="9" '
+                    'rx="1.5" fill="#111820"/>'
+                    '<path d="M 9 -5.5 V 5.5" '
+                    'stroke="#65a8ff" stroke-width="2.4" '
+                    'stroke-linecap="round"/>'
+                    '<path d="M 12 -5 V 5 M 14 -5 V 5 M 16 -4 V 4" '
+                    'stroke="#717b84" stroke-width="1" '
+                    'stroke-linecap="round"/>'
                     '</g>'
                 )
             else:
                 marker_art = (
-                    '<circle r="18" fill="#1f2933" stroke="#ffffff" stroke-width="2" '
+                    '<circle r="18" fill="#1f2933" '
+                    'stroke="#ffffff" stroke-width="2" '
                     'stroke-opacity=".9"/>'
-                    '<rect x="-8" y="-11" width="16" height="22" rx="5" '
-                    'fill="#f4f7f9" stroke="#263746" stroke-width="2"/>'
-                    '<rect x="-5" y="-7" width="10" height="7" rx="2" fill="#ff7a1a"/>'
-                    '<circle cx="-10" cy="-7" r="2.5" fill="#151d24"/>'
-                    '<circle cx="-10" cy="7" r="2.5" fill="#151d24"/>'
-                    '<circle cx="10" cy="-7" r="2.5" fill="#151d24"/>'
-                    '<circle cx="10" cy="7" r="2.5" fill="#151d24"/>'
-                    '<path d="M 0 -16 L -4 -10 L 4 -10 Z" fill="#ffffff"/>'
+                    '<rect x="-8" y="-11" width="16" height="22" '
+                    'rx="5" fill="#f4f7f9" '
+                    'stroke="#263746" stroke-width="2"/>'
+                    '<rect x="-5" y="-7" width="10" height="7" '
+                    'rx="2" fill="#ff7a1a"/>'
+                    '<circle cx="-10" cy="-7" r="2.5" '
+                    'fill="#151d24"/>'
+                    '<circle cx="-10" cy="7" r="2.5" '
+                    'fill="#151d24"/>'
+                    '<circle cx="10" cy="-7" r="2.5" '
+                    'fill="#151d24"/>'
+                    '<circle cx="10" cy="7" r="2.5" '
+                    'fill="#151d24"/>'
+                    '<path d="M 0 -16 L -4 -10 L 4 -10 Z" '
+                    'fill="#ffffff"/>'
                 )
+
             marker_svg = (
-                f'<g transform="translate({marker_x:.1f} {marker_y:.1f}) '
-                # The marker artwork points upward, while calculated map
-                # headings use zero degrees to the right (east).
+                f'<g transform="translate('
+                f'{marker_x:.1f} {marker_y:.1f}) '
                 f'rotate({marker_rotation + 90.0:.1f})">'
                 f'{marker_art}'
                 '</g>'
             )
-        return "".join((
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-            f'viewBox="0 0 {width} {height}">',
-            # Deliberately omit a canvas rectangle: areas outside the LiDAR
-            # terrain remain transparent when the camera is embedded in a card.
-            terrain_svg,
-            "".join(zone_svg),
-            route_svg,
-            dock_svg,
-            official_trail_svg,
-            trail_svg,
-            marker_svg,
-            f'<rect x="{max(width - 248, 18):.1f}" y="18" width="230" height="46" rx="23" fill="#111d27" opacity=".92"/>',
-            f'<text x="{max(width - 133, 133):.1f}" y="49" text-anchor="middle" fill="#fff" font-size="22" '
-            f'font-family="sans-serif">{html.escape(str(progress_text) + zone_text)}</text>',
-            '</svg>',
-        ))
+
+        return "".join(
+            (
+                f'<svg xmlns="http://www.w3.org/2000/svg" '
+                f'width="{width}" height="{height}" '
+                f'viewBox="0 0 {width} {height}">',
+                # Deliberately omit a canvas rectangle: areas outside the LiDAR
+                # terrain remain transparent when the camera is embedded in a card.
+                terrain_svg,
+                "".join(zone_svg),
+                route_svg,
+                dock_svg,
+                official_trail_svg,
+                trail_svg,
+                marker_svg,
+                f'<rect x="{max(width - 248, 18):.1f}" '
+                f'y="18" width="230" height="46" rx="23" '
+                f'fill="#111d27" opacity=".92"/>',
+                f'<text x="{max(width - 133, 133):.1f}" '
+                f'y="49" text-anchor="middle" fill="#fff" '
+                f'font-size="22" font-family="sans-serif">'
+                f'{html.escape(str(progress_text) + zone_text)}'
+                f'</text>',
+                '</svg>',
+            )
+        )
 
     @staticmethod
-    def _placeholder(message: str) -> str:
+    def _placeholder(
+        message: str,
+    ) -> str:
         safe = html.escape(message)
+
         return (
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{VIEW}" height="500" '
+            f'<svg xmlns="http://www.w3.org/2000/svg" '
+            f'width="{VIEW}" height="500" '
             f'viewBox="0 0 {VIEW} 500">'
-            '<rect width="100%" height="100%" rx="22" fill="#071018"/>'
-            '<circle cx="400" cy="205" r="34" fill="#ff7a1a"/>'
-            f'<text x="400" y="285" text-anchor="middle" fill="#dce8ef" '
-            f'font-size="20" font-family="sans-serif">{safe}</text></svg>'
+            '<rect width="100%" height="100%" '
+            'rx="22" fill="#071018"/>'
+            '<circle cx="400" cy="205" r="34" '
+            'fill="#ff7a1a"/>'
+            f'<text x="400" y="285" '
+            f'text-anchor="middle" fill="#dce8ef" '
+            f'font-size="20" font-family="sans-serif">'
+            f'{safe}</text></svg>'
         )
