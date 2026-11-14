@@ -1230,18 +1230,20 @@ class NavimowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if valid_heights:
                 wire = min(valid_heights, key=lambda height: abs(height - wire))
 
-            # The robot command for confirmed i-series mowers and
-            # telemetry-detected quarter-inch decks is a numeric millimetre
-            # value. Sending hexadecimal text to the X430 turns 101 mm into
-            # decimal "65", so a requested 4.00 in falls back to about 2.6 in.
+            # The robot command for confirmed i-series mowers, X-series
+            # mowers and telemetry-detected quarter-inch decks is a numeric
+            # millimetre value. X-series robots parse hexadecimal text as
+            # decimal: the X430 turns 101 mm into "65", and a metric X450
+            # turns 80 mm into "50" (sets 50 mm) and ignores 55 mm ("37").
             model = str(getattr(self.device, "model", None) or "").strip().lower()
             is_i_series = bool(re.match(r"^i\d", model))
+            is_x_series = bool(re.match(r"^x\d", model))
             height_family = (
                 (self._private_telemetry.get("limits") or {}).get(
                     "cutting_height_family"
                 )
             )
-            if is_i_series or height_family == "quarter_inch":
+            if is_i_series or is_x_series or height_family == "quarter_inch":
                 robot_value = wire
                 cloud_value: Any = str(wire) if is_i_series else wire
             else:

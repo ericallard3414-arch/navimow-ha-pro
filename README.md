@@ -143,7 +143,8 @@ the positions themselves, including regional variants such as the X430's 0.75–
 and rounded 19–101 mm labels. All other mowers retain their exact advertised discrete list.
 Navimow HA Pro also preserves
 the correct model-family command protocol: i-series uses numeric robot commands followed
-by decimal-string cloud persistence, while X-series retains its hexadecimal encoding.
+by decimal-string cloud persistence, and X-series (confirmed with an X430 and an X450) uses
+numeric robot commands with numeric cloud persistence.
 
 
 | Configuration drawer | Mowing schedule |
