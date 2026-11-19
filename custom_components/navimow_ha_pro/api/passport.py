@@ -55,6 +55,9 @@ _RESULT_OK = "90000"
 RESULT_TOKEN_EXPIRED = {"90015", "90016"}
 # The account is not on THIS regional server (each region has its own directory).
 RESULT_ACCOUNT_NOT_EXISTS = "00002"
+# This server rejects the client identity; another host in the region may not.
+RESULT_APP_VERSION_TOO_LOW = "90060"
+_RESULT_TRY_NEXT_HOST = {RESULT_ACCOUNT_NOT_EXISTS, RESULT_APP_VERSION_TOO_LOW}
 
 
 class PassportError(Exception):
@@ -221,8 +224,9 @@ def login(username: str, password: str, region: str | None = None) -> Tokens:
             return tokens
         last = PassportAuthError(code, str(j.get("resultDesc", "")))
         _LOGGER.warning("passport login refused by %s: %s %s", host, code, last.desc)
-        # Only "not here" is worth retrying elsewhere; bad credentials are final.
-        if code != RESULT_ACCOUNT_NOT_EXISTS:
+        # "Not here" and a per-host client-version gate are worth retrying
+        # elsewhere; bad credentials are final.
+        if code not in _RESULT_TRY_NEXT_HOST:
             raise last
 
     # The account is on none of that region's servers. A pinned region can simply
@@ -244,10 +248,15 @@ def refresh(tokens: Tokens, region: str | None = None) -> Tokens:
         "refresh_token": tokens.refresh_token,
         "device": DEVICE,
     }
-    host = passport_hosts(region or tokens.region)[0]
-    j = _post("/v3/user/refresh", params, host)
-    code = str(j.get("resultCode"))
-    if code != _RESULT_OK:
+    for host in passport_hosts(region or tokens.region):
+        j = _post("/v3/user/refresh", params, host)
+        code = str(j.get("resultCode"))
+        if code == _RESULT_OK:
+            break
+        if code != RESULT_APP_VERSION_TOO_LOW:
+            raise PassportAuthError(code, str(j.get("resultDesc", "")))
+        _LOGGER.warning("passport refresh refused by %s: %s", host, code)
+    else:
         raise PassportAuthError(code, str(j.get("resultDesc", "")))
     data = j.get("data") or {}
     new = _extract_tokens(data)
