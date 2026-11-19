@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Fix US sign-in failing with `90060 The current app version is too low`: ask `api-passport-ore.willand.com` (the host the official app uses) first, and move on to the region's next Passport host on 90060 for both login and token refresh instead of giving up.
 - Send X-series cutting heights to the mower as numeric millimetres, not just quarter-inch decks. A metric X450 parsed the hexadecimal text as decimal: 80 mm became 50 mm, and 55 mm (`"37"`) was silently ignored.
 
 ## 0.9.0

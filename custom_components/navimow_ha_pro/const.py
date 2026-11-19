@@ -26,10 +26,12 @@ _REGION_ALIASES: Final = {"eu": "fra", "sea": "sg", "ore": "us"}
 PASSPORT_HOSTS: Final = {
     "fra": ("api-passport-fra.willand.com", "api-passport-fra.ninebot.com"),
     "sg": ("api-passport-sg.willand.com", "api-passport-sg.ninebot.com"),
+    # The official app signs in US accounts on ore.willand.com; us.ninebot.com
+    # answers every login with 90060 ("app version too low").
     "us": (
+        "api-passport-ore.willand.com",
         "api-passport-us.ninebot.com",
         "api-passport-ore.ninebot.com",
-        "api-passport-ore.willand.com",
     ),
     "bj": ("api-passport-bj.willand.com", "api-passport-bj.ninebot.com"),
 }
